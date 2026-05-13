@@ -1,0 +1,148 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isDoctor() {
+      return isAuthenticated() && getUserRole() == 'doctor';
+    }
+
+    function isPharmacist() {
+      return isAuthenticated() && getUserRole() == 'pharmacist';
+    }
+
+    function isPatient() {
+      return isAuthenticated() && getUserRole() == 'patient';
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (getUserRole() == 'admin' || 
+        (request.auth.token.email == "goyalelectrocare@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    
+    // Users Collection (Base Profile & Role)
+    match /users/{userId} {
+      // Users can read their own profile. Admins can read all.
+      allow read: if isOwner(userId) || isAdmin();
+      
+      // Users can create their own profile. They cannot assign themselves 'admin' unless they are already admin.
+      allow create: if isOwner(userId) && 
+                    (request.resource.data.role in ['patient', 'doctor', 'pharmacist', 'unassigned'] || isAdmin());
+                    
+      // Users can update their own profile, but cannot change their role unless it's unassigned.
+      allow update: if isOwner(userId) && 
+                    (request.resource.data.role == resource.data.role || 
+                    (resource.data.role == 'unassigned' && request.resource.data.role in ['patient', 'doctor', 'pharmacist']) || 
+                    isAdmin());
+
+      // Reminders Subcollection
+      match /reminders/{reminderId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Patients Collection (Medical Data)
+    match /patients/{userId} {
+      // Patients can read their own data. Doctors and Pharmacists can read patient data for care.
+      allow read: if isOwner(userId) || isDoctor() || isPharmacist() || isAdmin();
+      // Only the patient (or admin) can update their medical profile.
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // Doctors Collection (CRM Data)
+    match /doctors/{userId} {
+      // Anyone authenticated can read doctor profiles (for searching/booking).
+      allow read: if isAuthenticated();
+      // Only the doctor can update their profile.
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // Pharmacies Collection (CRM Data)
+    match /pharmacies/{userId} {
+      // Anyone authenticated can read pharmacy profiles (for locator).
+      allow read: if isAuthenticated();
+      // Only the pharmacist can update their profile.
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // Prescriptions Collection
+    match /prescriptions/{prescriptionId} {
+      // Patient, Doctor, and Pharmacy involved can read.
+      allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid || 
+        resource.data.doctorId == request.auth.uid || 
+        resource.data.pharmacyId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      // Only doctors can create prescriptions.
+      allow create: if isDoctor() && request.resource.data.doctorId == request.auth.uid;
+      
+      // Pharmacists can update the status to 'filled'. Doctors can cancel.
+      allow update: if isAuthenticated() && (
+        (isPharmacist() && request.resource.data.pharmacyId == request.auth.uid) ||
+        (isDoctor() && resource.data.doctorId == request.auth.uid) ||
+        isAdmin()
+      );
+    }
+
+    // Consultations Collection (Telemedicine)
+    match /consultations/{consultationId} {
+      // Patient and Doctor involved can read.
+      allow read: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid || 
+        resource.data.doctorId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      // Patients or Doctors can create/schedule.
+      allow create: if isAuthenticated() && (
+        request.resource.data.patientId == request.auth.uid || 
+        request.resource.data.doctorId == request.auth.uid
+      );
+      
+      // Involved parties can update.
+      allow update: if isAuthenticated() && (
+        resource.data.patientId == request.auth.uid || 
+        resource.data.doctorId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // Chat Rooms Collection (Telemedicine Video/Chat)
+    match /chatRooms/{roomId} {
+      allow read, write: if isAuthenticated();
+      
+      match /messages/{messageId} {
+        allow read, write: if isAuthenticated();
+      }
+      
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isAuthenticated();
+      }
+      
+      match /calleeCandidates/{candidateId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+  }
+}

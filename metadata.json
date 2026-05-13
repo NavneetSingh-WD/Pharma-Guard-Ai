@@ -1,0 +1,9 @@
+{
+  "name": "PHARMA-GUARD",
+  "description": "Integrated Drug Safety, Telemedicine, & Emergency Resource Management System",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

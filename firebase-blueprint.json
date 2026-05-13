@@ -1,0 +1,129 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Base user profile with RBAC role.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["patient", "doctor", "pharmacist", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "PatientProfile": {
+      "title": "PatientProfile",
+      "description": "Global patient profile capturing medical data.",
+      "type": "object",
+      "properties": {
+        "age": { "type": "number" },
+        "weightKg": { "type": "number" },
+        "gender": { "type": "string", "enum": ["Male", "Female", "Other", "Prefer not to say"] },
+        "medicalConditions": { "type": "array", "items": { "type": "string" } },
+        "knownAllergies": { "type": "array", "items": { "type": "string" } },
+        "currentMedications": { "type": "array", "items": { "type": "string" } },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "DoctorProfile": {
+      "title": "DoctorProfile",
+      "description": "Doctor CRM profile.",
+      "type": "object",
+      "properties": {
+        "specialization": { "type": "string" },
+        "licenseNumber": { "type": "string" },
+        "hospitalAffiliation": { "type": "string" },
+        "verified": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "PharmacyProfile": {
+      "title": "PharmacyProfile",
+      "description": "Pharmacist CRM profile.",
+      "type": "object",
+      "properties": {
+        "pharmacyName": { "type": "string" },
+        "licenseNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          }
+        },
+        "verified": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Prescription": {
+      "title": "Prescription",
+      "description": "Digital prescription sent to patient and pharmacy.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "pharmacyId": { "type": "string" },
+        "medications": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "drugName": { "type": "string" },
+              "dosage": { "type": "string" },
+              "frequency": { "type": "string" },
+              "durationDays": { "type": "number" },
+              "allowGenericSubstitution": { "type": "boolean" }
+            }
+          }
+        },
+        "status": { "type": "string", "enum": ["pending", "filled", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "doctorId", "medications", "status", "createdAt"]
+    },
+    "Consultation": {
+      "title": "Consultation",
+      "description": "Telemedicine consultation session.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "status": { "type": "string", "enum": ["scheduled", "active", "completed", "cancelled"] },
+        "scheduledAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "doctorId", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores base user profiles and RBAC roles."
+    },
+    "/patients/{userId}": {
+      "schema": { "$ref": "#/entities/PatientProfile" },
+      "description": "Stores patient-specific medical data."
+    },
+    "/doctors/{userId}": {
+      "schema": { "$ref": "#/entities/DoctorProfile" },
+      "description": "Stores doctor-specific data."
+    },
+    "/pharmacies/{userId}": {
+      "schema": { "$ref": "#/entities/PharmacyProfile" },
+      "description": "Stores pharmacy-specific data."
+    },
+    "/prescriptions/{prescriptionId}": {
+      "schema": { "$ref": "#/entities/Prescription" },
+      "description": "Stores digital prescriptions."
+    },
+    "/consultations/{consultationId}": {
+      "schema": { "$ref": "#/entities/Consultation" },
+      "description": "Stores telemedicine sessions."
+    }
+  }
+}
