@@ -3,145 +3,209 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // ===============================================================
-    // Helper Functions
+    // HELPER FUNCTIONS
     // ===============================================================
-    function isAuthenticated() {
-      return request.auth != null;
-    }
+    function isSignedIn() { return request.auth != null; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
     
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
     }
-    
-    function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+
+    // Role-Based helper
+    function getProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() { 
+      return isSignedIn() && (
+        request.auth.token.email == "goyalelectrocare@gmail.com" ||
+        getProfile().get('role', 'unassigned') == 'admin'
+      ); 
     }
 
     function isDoctor() {
-      return isAuthenticated() && getUserRole() == 'doctor';
+      return isSignedIn() && getProfile().get('role', 'unassigned') == 'doctor';
     }
 
     function isPharmacist() {
-      return isAuthenticated() && getUserRole() == 'pharmacist';
+      return isSignedIn() && getProfile().get('role', 'unassigned') == 'pharmacist';
     }
 
-    function isPatient() {
-      return isAuthenticated() && getUserRole() == 'patient';
+    function isActiveDoctor() {
+      return isDoctor() && getProfile().get('status', 'pending') == 'active';
     }
 
-    function isAdmin() {
-      return isAuthenticated() && 
-        (getUserRole() == 'admin' || 
-        (request.auth.token.email == "goyalelectrocare@gmail.com" && request.auth.token.email_verified == true));
+    function isActivePharmacist() {
+      return isPharmacist() && getProfile().get('status', 'pending') == 'active';
     }
 
     // ===============================================================
-    // Rules
+    // BASE DENY
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // USERS COLLECTION (Global Registry)
+    // ===============================================================
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      
+      // Admins can list anyone. 
+      // Doctors/Pharmacists can only list patients.
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        ((isActiveDoctor() || isActivePharmacist()) && resource.data.get('role', 'unassigned') == 'patient')
+      );
+      
+      allow create: if isValidId(userId) && userId == request.auth.uid && (
+        incoming().keys().hasAll(['uid', 'email', 'role', 'status', 'createdAt']) &&
+        incoming().uid == request.auth.uid &&
+        incoming().role in ['patient', 'doctor', 'pharmacist', 'admin', 'unassigned'] &&
+        incoming().status in ['active', 'pending', 'rejected']
+      );
+      
+      allow update: if isValidId(userId) && (
+        // Admin can update status and role
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'role', 'updatedAt'])) ||
+        // User can update profile details but NOT status/role (unless starting as unassigned)
+        (userId == request.auth.uid && (
+          (existing().role == 'unassigned' && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'displayName', 'photoURL', 'updatedAt', 'medical'])) ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'medical']))
+        ))
+      );
+
+      // Subcollections like reminders
+      match /{allSubcollections=**} {
+        allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    // ===============================================================
+    // PROFESSIONAL COLLECTIONS
+    // ===============================================================
+    match /doctors/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isValidId(userId) && userId == request.auth.uid;
+    }
+
+    match /pharmacies/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isValidId(userId) && userId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // CLINICAL COLLECTIONS
     // ===============================================================
     
-    // Users Collection (Base Profile & Role)
-    match /users/{userId} {
-      // Users can read their own profile. Admins can read all.
-      allow read: if isOwner(userId) || isAdmin();
-      
-      // Users can create their own profile. They cannot assign themselves 'admin' unless they are already admin.
-      allow create: if isOwner(userId) && 
-                    (request.resource.data.role in ['patient', 'doctor', 'pharmacist', 'unassigned'] || isAdmin());
-                    
-      // Users can update their own profile, but cannot change their role unless it's unassigned.
-      allow update: if isOwner(userId) && 
-                    (request.resource.data.role == resource.data.role || 
-                    (resource.data.role == 'unassigned' && request.resource.data.role in ['patient', 'doctor', 'pharmacist']) || 
-                    isAdmin());
-
-      // Reminders Subcollection
-      match /reminders/{reminderId} {
-        allow read, write: if isOwner(userId);
-      }
-    }
-
-    // Patients Collection (Medical Data)
+    // Patient Profile (Extended Data)
     match /patients/{userId} {
-      // Patients can read their own data. Doctors and Pharmacists can read patient data for care.
-      allow read: if isOwner(userId) || isDoctor() || isPharmacist() || isAdmin();
-      // Only the patient (or admin) can update their medical profile.
-      allow write: if isOwner(userId) || isAdmin();
+      allow get: if isValidId(userId) && (
+        request.auth.uid == userId || 
+        isActiveDoctor() || 
+        isActivePharmacist() || 
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        isActiveDoctor() || 
+        isActivePharmacist() || 
+        isAdmin()
+      );
+      allow create, update: if isValidId(userId) && (request.auth.uid == userId || isAdmin());
     }
 
-    // Doctors Collection (CRM Data)
-    match /doctors/{userId} {
-      // Anyone authenticated can read doctor profiles (for searching/booking).
-      allow read: if isAuthenticated();
-      // Only the doctor can update their profile.
-      allow write: if isOwner(userId) || isAdmin();
+    // Appointments
+    match /appointments/{appointmentId} {
+      allow get: if isValidId(appointmentId) && (
+        existing().doctorId == request.auth.uid || 
+        existing().patientId == request.auth.uid || 
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.doctorId == request.auth.uid || 
+        resource.data.patientId == request.auth.uid || 
+        isAdmin()
+      );
+      
+      allow create: if isValidId(appointmentId) && (
+        (isActiveDoctor() && incoming().doctorId == request.auth.uid) || 
+        (incoming().patientId == request.auth.uid)
+      );
+      
+      allow update: if isValidId(appointmentId) && (
+        existing().doctorId == request.auth.uid || 
+        existing().patientId == request.auth.uid || 
+        isAdmin()
+      );
     }
 
-    // Pharmacies Collection (CRM Data)
-    match /pharmacies/{userId} {
-      // Anyone authenticated can read pharmacy profiles (for locator).
-      allow read: if isAuthenticated();
-      // Only the pharmacist can update their profile.
-      allow write: if isOwner(userId) || isAdmin();
-    }
-
-    // Prescriptions Collection
+    // Prescriptions
     match /prescriptions/{prescriptionId} {
-      // Patient, Doctor, and Pharmacy involved can read.
-      allow read: if isAuthenticated() && (
+      allow read: if isSignedIn() && (
         resource.data.patientId == request.auth.uid || 
         resource.data.doctorId == request.auth.uid || 
-        resource.data.pharmacyId == request.auth.uid ||
+        isActivePharmacist() || 
         isAdmin()
       );
       
-      // Only doctors can create prescriptions.
-      allow create: if isDoctor() && request.resource.data.doctorId == request.auth.uid;
+      allow create: if isValidId(prescriptionId) && isActiveDoctor() && 
+                    incoming().doctorId == request.auth.uid;
       
-      // Pharmacists can update the status to 'filled'. Doctors can cancel.
-      allow update: if isAuthenticated() && (
-        (isPharmacist() && request.resource.data.pharmacyId == request.auth.uid) ||
-        (isDoctor() && resource.data.doctorId == request.auth.uid) ||
+      allow update: if isValidId(prescriptionId) && (
+        (isActivePharmacist() && incoming().diff(existing()).affectedKeys().hasAny(['status', 'pharmacyId', 'pharmacyName'])) ||
+        (isActiveDoctor() && existing().doctorId == request.auth.uid) ||
         isAdmin()
       );
     }
 
-    // Consultations Collection (Telemedicine)
+    // ===============================================================
+    // UTILITY COLLECTIONS
+    // ===============================================================
     match /consultations/{consultationId} {
-      // Patient and Doctor involved can read.
-      allow read: if isAuthenticated() && (
+       allow read, write: if isSignedIn(); 
+    }
+
+    match /clinicalNotes/{noteId} {
+      allow get: if isValidId(noteId) && (
         resource.data.patientId == request.auth.uid || 
-        resource.data.doctorId == request.auth.uid ||
+        isActiveDoctor() || 
         isAdmin()
       );
-      
-      // Patients or Doctors can create/schedule.
-      allow create: if isAuthenticated() && (
-        request.resource.data.patientId == request.auth.uid || 
-        request.resource.data.doctorId == request.auth.uid
-      );
-      
-      // Involved parties can update.
-      allow update: if isAuthenticated() && (
+      allow list: if isSignedIn() && (
         resource.data.patientId == request.auth.uid || 
-        resource.data.doctorId == request.auth.uid ||
+        isActiveDoctor() || 
+        isAdmin()
+      );
+      allow create: if isValidId(noteId) && isActiveDoctor() && 
+                    incoming().doctorId == request.auth.uid;
+      allow update, delete: if isValidId(noteId) && (
+        (isActiveDoctor() && existing().doctorId == request.auth.uid) ||
         isAdmin()
       );
     }
 
-    // Chat Rooms Collection (Telemedicine Video/Chat)
+    match /examResults/{resultId} {
+      allow get: if isValidId(resultId) && (
+        resource.data.patientId == request.auth.uid || 
+        isActiveDoctor() || 
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.patientId == request.auth.uid || 
+        isActiveDoctor() || 
+        isAdmin()
+      );
+      allow create: if isValidId(resultId) && isActiveDoctor();
+      allow update, delete: if isValidId(resultId) && (isActiveDoctor() || isAdmin());
+    }
+
     match /chatRooms/{roomId} {
-      allow read, write: if isAuthenticated();
-      
-      match /messages/{messageId} {
-        allow read, write: if isAuthenticated();
-      }
-      
-      match /callerCandidates/{candidateId} {
-        allow read, write: if isAuthenticated();
-      }
-      
-      match /calleeCandidates/{candidateId} {
-        allow read, write: if isAuthenticated();
+      allow read, write: if isSignedIn();
+      match /{allSubcollections=**} {
+        allow read, write: if isSignedIn();
       }
     }
   }

@@ -1,138 +1,244 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Store, Package, RefreshCw, AlertTriangle, FileText, Search } from 'lucide-react';
+import { Store, Package, RefreshCw, AlertTriangle, FileText, Search, CheckCircle2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { collection, query, where, getDocs, updateDoc, doc, limit, orderBy } from 'firebase/firestore';
+import { db } from '../../firebase';
+import GenericSubModal from '../modals/GenericSubModal';
 
 export default function PharmacistDashboard() {
   const { userProfile } = useAuth();
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSubModalOpen, setIsSubModalOpen] = useState(false);
+
+  useEffect(() => {
+    async function fetchPrescriptions() {
+      try {
+        const q = query(
+          collection(db, 'prescriptions'), 
+          where('status', '==', 'pending'),
+          orderBy('createdAt', 'desc'),
+          limit(10)
+        );
+        const snap = await getDocs(q);
+        setPrescriptions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e) {
+        console.error("Error fetching prescriptions:", e);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchPrescriptions();
+  }, []);
+
+  const fulfillPrescription = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'prescriptions', id), {
+        status: 'fulfilled',
+        fulfilledAt: new Date().toISOString(),
+        pharmacyId: userProfile?.uid,
+        pharmacyName: userProfile?.displayName
+      });
+      setPrescriptions(prev => prev.filter(p => p.id !== id));
+      alert("Prescription fulfilled successfully!");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to fulfill prescription");
+    }
+  };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 auto-rows-[minmax(180px,auto)]">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 auto-rows-[minmax(140px,auto)]">
       
-      {/* Pharmacy Profile Summary (Col span 4) */}
-      <div className="md:col-span-4 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 bg-amber-100 text-amber-600 rounded-xl">
-            <Store size={20} />
-          </div>
-          <h2 className="text-lg font-bold text-slate-800">Pharmacy Profile</h2>
+      {/* Inventory & MTM HERO CARD (Col span 8) */}
+      <div className="lg:col-span-8 bg-amber-600 shadow-2xl shadow-amber-900/20 rounded-[2.5rem] p-10 flex flex-col relative overflow-hidden group">
+        <div className="absolute right-[-5%] top-[-5%] opacity-20 pointer-events-none group-hover:scale-110 transition-transform duration-1000 text-white">
+           <Package size={320} strokeWidth={1} />
         </div>
-        <div className="flex flex-col items-center mb-6">
+        <div className="absolute -left-20 -bottom-20 w-80 h-80 bg-amber-400/20 rounded-full blur-3xl group-hover:bg-amber-400/30 transition-colors"></div>
+        
+        <div className="relative z-10 flex flex-col h-full">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="p-3 bg-white/20 backdrop-blur-xl text-white rounded-2xl border border-white/20 group-hover:rotate-12 transition-transform">
+              <Package size={28} />
+            </div>
+            <div>
+              <h2 className="text-3xl font-black text-white tracking-tighter uppercase italic leading-none">PMS Control Hub</h2>
+              <p className="text-amber-100/70 text-xs font-bold uppercase tracking-[0.2em] mt-1">MTM & Inventory Telemetry</p>
+            </div>
+          </div>
+          <p className="text-amber-50 text-lg font-medium mb-10 max-w-xl leading-relaxed">
+            Monitor real-time stock levels, automated FEFO alerts, and MTM drug interactions. 
+            Utilize our clinical engine for safe generic substitutions and price benchmarking.
+          </p>
+          <div className="mt-auto flex flex-wrap gap-4">
+            <Link 
+              to="/inventory"
+              className="bg-white text-amber-800 font-black py-4 px-10 rounded-2xl shadow-xl hover:bg-slate-50 hover:-translate-y-1 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center gap-2"
+            >
+              <Search size={20} /> Manage Stock
+            </Link>
+            <button 
+              onClick={() => setIsSubModalOpen(true)}
+              className="bg-amber-800/40 backdrop-blur-xl border border-white/30 text-white font-black py-4 px-10 rounded-2xl hover:bg-amber-800/60 hover:-translate-y-1 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center gap-3"
+            >
+              <RefreshCw size={20} /> Substitution Engine
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Pharmacist Profile (Col span 4) */}
+      <div className="lg:col-span-4 bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2.5rem] p-8 flex flex-col items-center justify-center text-center group hover:shadow-2xl transition-all duration-500">
+        <div className="relative mb-6">
+          <div className="absolute inset-0 bg-amber-500 rounded-full blur-2xl opacity-10 group-hover:opacity-30 transition-opacity"></div>
           {userProfile?.photoURL ? (
-            <img src={userProfile.photoURL} alt="Profile" className="w-20 h-20 rounded-full border-4 border-amber-50 shadow-md mb-3" referrerPolicy="no-referrer" />
+            <img src={userProfile.photoURL} alt="Profile" className="relative w-32 h-32 rounded-[2.5rem] border-4 border-white shadow-2xl object-cover" referrerPolicy="no-referrer" />
           ) : (
-            <div className="w-20 h-20 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mb-3 text-2xl font-bold">
+            <div className="relative w-32 h-32 rounded-[2.5rem] bg-amber-100 text-amber-700 flex items-center justify-center text-5xl font-black shadow-xl">
               {userProfile?.displayName?.charAt(0) || 'P'}
             </div>
           )}
-          <h3 className="text-xl font-bold text-slate-800">{userProfile?.displayName || 'Pharmacist'}</h3>
-          <p className="text-sm text-slate-500">City Health Pharmacy</p>
-        </div>
-        <div className="mt-auto grid grid-cols-2 gap-3">
-          <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100">
-            <p className="text-2xl font-bold text-amber-600">45</p>
-            <p className="text-xs text-slate-500 font-medium uppercase">Orders Today</p>
-          </div>
-          <div className="bg-slate-50 p-3 rounded-xl text-center border border-slate-100">
-            <p className="text-2xl font-bold text-rose-600">3</p>
-            <p className="text-xs text-slate-500 font-medium uppercase">Low Stock</p>
+          <div className="absolute -bottom-2 -right-2 p-2.5 bg-amber-500 text-white rounded-xl shadow-lg border-2 border-white">
+            <Store size={18} />
           </div>
         </div>
-      </div>
-
-      {/* Inventory & MTM (Col span 8) */}
-      <div className="md:col-span-8 bg-gradient-to-br from-amber-500 to-amber-700 text-white shadow-xl shadow-amber-600/20 rounded-3xl p-6 flex flex-col relative overflow-hidden hover:shadow-2xl hover:shadow-amber-600/30 transition-shadow duration-300">
-        <div className="absolute right-[-5%] top-[-10%] opacity-10 pointer-events-none">
-          <Package size={250} strokeWidth={1} />
-        </div>
-        <div className="relative z-10 flex flex-col h-full">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2.5 bg-white/20 backdrop-blur-md text-white rounded-xl">
-              <Package size={20} />
-            </div>
-            <h2 className="text-xl font-bold">Inventory & MTM Dashboard</h2>
+        <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none mb-1">{userProfile?.displayName || 'Chief Pharmacist'}</h3>
+        <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mb-8">Clinical MTM Specialist • Terminal #92</p>
+        
+        <div className="w-full grid grid-cols-2 gap-4">
+          <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-100 group/stat">
+            <p className="text-2xl font-black text-amber-600 leading-none mb-1 group-hover/stat:scale-110 transition-transform">45</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Orders</p>
           </div>
-          <p className="text-amber-100 mb-6 max-w-lg">
-            Manage real-time stock, monitor FEFO (First Expire, First Out) alerts, and process generic substitutions.
-          </p>
-          <div className="mt-auto flex gap-3">
-            <button className="bg-white text-amber-700 font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-amber-50 transition-colors active:scale-95 text-center flex items-center gap-2">
-              <Search size={18} /> Manage Inventory
-            </button>
-            <button className="bg-amber-600/50 backdrop-blur-md border border-amber-400/50 text-white font-semibold py-3 px-6 rounded-xl hover:bg-amber-600/70 transition-colors active:scale-95 text-center flex items-center gap-2">
-              <RefreshCw size={18} /> Generic Substitutions
-            </button>
+          <div className="bg-rose-50/50 p-5 rounded-3xl border border-rose-100 group/stat">
+            <p className="text-2xl font-black text-rose-600 leading-none mb-1 group-hover/stat:scale-110 transition-transform">3</p>
+            <p className="text-[10px] font-bold text-rose-400 uppercase tracking-tighter">Critical</p>
           </div>
         </div>
       </div>
 
-      {/* Expiry Alerts (Col span 6) */}
-      <div className="md:col-span-6 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-rose-100 text-rose-600 rounded-xl">
-              <AlertTriangle size={20} />
+      {/* FEFO Alerts (Col span 5, Row span 2) */}
+      <div className="lg:col-span-5 lg:row-span-2 bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2.5rem] p-8 flex flex-col group hover:shadow-2xl transition-all duration-500 overflow-hidden relative">
+        <div className="absolute -left-8 -top-8 w-40 h-40 bg-rose-500/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-rose-100 text-rose-600 rounded-2xl group-hover:rotate-6 transition-transform">
+              <AlertTriangle size={24} />
             </div>
-            <h2 className="text-lg font-bold text-slate-800">FEFO Expiry Alerts</h2>
-          </div>
-          <span className="px-3 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full uppercase tracking-wider">Action Required</span>
-        </div>
-        <div className="space-y-3 mb-6">
-          <div className="flex items-center justify-between p-3 bg-rose-50 rounded-xl border border-rose-100">
             <div>
-              <p className="text-sm font-bold text-slate-800">Amoxicillin 500mg</p>
-              <p className="text-xs text-slate-500">Batch: AMX-992</p>
+              <h2 className="text-xl font-bold text-slate-800">FEFO Telemetry</h2>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Expiry Risk Vector</p>
             </div>
-            <span className="text-sm font-bold text-rose-600">Expires in 15 days</span>
           </div>
-          <div className="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-100">
-            <div>
-              <p className="text-sm font-bold text-slate-800">Lisinopril 10mg</p>
-              <p className="text-xs text-slate-500">Batch: LIS-401</p>
+          <span className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-700 text-[10px] font-black rounded-full uppercase tracking-widest border border-rose-100">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></span> Warning
+          </span>
+        </div>
+        
+        <div className="space-y-4 mb-8">
+          <div className="p-5 bg-rose-50/50 border border-rose-100 rounded-2xl flex flex-col gap-3 group/alert hover:bg-rose-50 transition-colors">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-bold text-slate-800 uppercase tracking-tight">Amoxicillin 500mg</p>
+                <p className="text-[10px] text-slate-500 font-bold">BATCH: AMX-992-B</p>
+              </div>
+              <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">15 Days Left</span>
             </div>
-            <span className="text-sm font-bold text-amber-600">Expires in 45 days</span>
+            <div className="w-full h-1 bg-rose-200 rounded-full overflow-hidden">
+               <div className="h-full bg-rose-600 w-[10%]"></div>
+            </div>
+          </div>
+          
+          <div className="p-5 bg-amber-50/50 border border-amber-100 rounded-2xl flex flex-col gap-3 group/alert hover:bg-amber-50 transition-colors">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-bold text-slate-800 uppercase tracking-tight">Lisinopril 10mg</p>
+                <p className="text-[10px] text-slate-500 font-bold">BATCH: LIS-401-K</p>
+              </div>
+              <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">45 Days Left</span>
+            </div>
+            <div className="w-full h-1 bg-amber-200 rounded-full overflow-hidden">
+               <div className="h-full bg-amber-600 w-[40%]"></div>
+            </div>
           </div>
         </div>
-        <button className="mt-auto w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold py-3.5 rounded-xl transition-all active:scale-[0.98] text-center block">
-          View All Alerts
+
+        <button className="mt-auto w-full bg-slate-900 text-white font-black py-4 rounded-2xl shadow-xl shadow-slate-900/20 transition-all hover:scale-[1.02] active:scale-[0.98] text-center text-sm uppercase tracking-widest">
+          Audit Inventory
         </button>
       </div>
 
-      {/* E-Prescriptions (Col span 6) */}
-      <div className="md:col-span-6 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2.5 bg-teal-100 text-teal-600 rounded-xl">
-            <FileText size={20} />
-          </div>
-          <h2 className="text-lg font-bold text-slate-800">E-Prescriptions</h2>
-        </div>
-        <div className="space-y-3 mb-6">
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-teal-500"></div>
-              <div>
-                <p className="text-sm font-bold text-slate-800">Rx: Metformin 500mg</p>
-                <p className="text-xs text-slate-500">Patient: John Doe</p>
-              </div>
+      {/* E-Prescriptions Hub (Col span 7) */}
+      <div className="lg:col-span-7 bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2.5rem] p-8 flex flex-col group hover:shadow-2xl transition-all duration-500 overflow-hidden">
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-teal-100 text-teal-600 rounded-2xl group-hover:rotate-6 transition-transform">
+              <FileText size={24} />
             </div>
-            <button className="text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1.5 rounded-lg hover:bg-teal-100">Fulfill</button>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
-            <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-              <div>
-                <p className="text-sm font-bold text-slate-800">Rx: Atorvastatin 20mg</p>
-                <p className="text-xs text-slate-500">Patient: Jane Smith</p>
-              </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-800 tracking-tight">Active Rx Stream</h2>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">Inter-Operability Protocol</p>
             </div>
-            <button className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100">Fulfill</button>
+          </div>
+          <div className="px-3 py-1.5 bg-green-50 text-green-700 rounded-xl text-xs font-bold border border-green-100 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> SYNCING
           </div>
         </div>
-        <button className="mt-auto w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3.5 rounded-xl transition-all active:scale-[0.98] text-center block">
-          View All Prescriptions
-        </button>
+
+        <div className="space-y-4 mb-4 flex-1 overflow-y-auto max-h-[360px] pr-2 custom-scrollbar">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center p-20">
+               <div className="animate-spin h-10 w-10 border-t-2 border-teal-600 rounded-full mb-4"></div>
+               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Decrypting Stream...</p>
+            </div>
+          ) : prescriptions.length > 0 ? (
+            prescriptions.map((px) => (
+              <div key={px.id} className="p-6 bg-slate-50/50 border border-slate-100 rounded-3xl group/item hover:bg-white hover:border-teal-300 transition-all">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-teal-100 text-teal-600 flex items-center justify-center font-black text-lg">
+                      {px.patientName?.charAt(0) || 'P'}
+                    </div>
+                    <div>
+                      <p className="font-black text-slate-800 text-base leading-none mb-1">{px.patientName}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">REF: #{px.id.slice(0, 8)}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => fulfillPrescription(px.id)}
+                    className="flex items-center gap-2 text-xs font-black text-white bg-teal-600 px-5 py-2.5 rounded-xl hover:bg-teal-700 shadow-lg shadow-teal-600/20 transition-all active:scale-95"
+                  >
+                    <CheckCircle2 size={16} /> DISPENSE
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {px.medications?.map((m: any, i: number) => (
+                    <span key={i} className="text-[10px] font-bold bg-white border border-slate-200 text-slate-600 px-3 py-1 rounded-lg uppercase tracking-tight">
+                      {m.name} • {m.dosage}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center p-20 bg-slate-50/50 rounded-3xl border border-dashed border-slate-200">
+               <div className="w-16 h-16 bg-slate-100 text-slate-300 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Search size={32} />
+               </div>
+               <p className="text-sm font-bold text-slate-400 uppercase tracking-[0.2em]">Queue Vacant</p>
+            </div>
+          )}
+        </div>
       </div>
 
+
+
+      <GenericSubModal 
+        isOpen={isSubModalOpen}
+        onClose={() => setIsSubModalOpen(false)}
+      />
     </div>
   );
 }

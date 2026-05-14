@@ -2,18 +2,19 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "Base user profile with RBAC role.",
+      "description": "Base user profile with RBAC role and verification status.",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "displayName": { "type": "string" },
         "photoURL": { "type": "string" },
-        "role": { "type": "string", "enum": ["patient", "doctor", "pharmacist", "admin"] },
+        "role": { "type": "string", "enum": ["patient", "doctor", "pharmacist", "admin", "unassigned"] },
+        "status": { "type": "string", "enum": ["active", "pending", "rejected"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["uid", "email", "role", "createdAt"]
+      "required": ["uid", "email", "role", "status", "createdAt"]
     },
     "PatientProfile": {
       "title": "PatientProfile",
@@ -37,6 +38,7 @@
         "specialization": { "type": "string" },
         "licenseNumber": { "type": "string" },
         "hospitalAffiliation": { "type": "string" },
+        "verificationDocUrl": { "type": "string" },
         "verified": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
@@ -56,6 +58,7 @@
             "lng": { "type": "number" }
           }
         },
+        "verificationDocUrl": { "type": "string" },
         "verified": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
@@ -98,6 +101,37 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["patientId", "doctorId", "status", "createdAt"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Clinical appointment record.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "patientName": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "doctorName": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "doctorId", "date", "time", "status", "createdAt"]
+    },
+    "ClinicalNote": {
+      "title": "ClinicalNote",
+      "description": "Structured clinical notes (SOAP format) added by doctors.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "doctorName": { "type": "string" },
+        "category": { "type": "string", "enum": ["Subjective", "Objective", "Assessment", "Plan"] },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "doctorId", "category", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -121,9 +155,17 @@
       "schema": { "$ref": "#/entities/Prescription" },
       "description": "Stores digital prescriptions."
     },
+    "/appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "Stores appointments."
+    },
     "/consultations/{consultationId}": {
       "schema": { "$ref": "#/entities/Consultation" },
       "description": "Stores telemedicine sessions."
+    },
+    "/clinicalNotes/{noteId}": {
+      "schema": { "$ref": "#/entities/ClinicalNote" },
+      "description": "Stores structured clinical notes for patients."
     }
   }
 }

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
@@ -227,60 +228,100 @@ export default function Scanner() {
           <div className="bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2rem] p-6 flex flex-col">
             <h2 className="text-xl font-bold text-slate-800 mb-4">Capture Label</h2>
             
-            <div className={`flex-1 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center p-6 transition-all ${imagePreview || isCameraOpen ? 'border-teal-500 bg-teal-50/50' : 'border-slate-300 bg-slate-50'}`}>
+            <div className={`flex-1 border-2 border-dashed rounded-[2rem] flex flex-col items-center justify-center p-2 transition-all overflow-hidden relative ${imagePreview || isCameraOpen ? 'border-teal-500 bg-teal-50/50' : 'border-slate-300 bg-slate-50'}`}>
               
               {isCameraOpen ? (
-                <div className="relative w-full h-full min-h-[250px] flex flex-col items-center justify-center bg-black rounded-xl overflow-hidden">
+                <div className="relative w-full h-[400px] flex flex-col items-center justify-center bg-black rounded-[1.5rem] overflow-hidden group">
                   <video 
                     ref={videoRef} 
                     autoPlay 
                     playsInline 
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover opacity-80"
                   />
-                  <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4 z-10">
+                  
+                  {/* Viewfinder Overlay */}
+                  <div className="absolute inset-0 pointer-events-none z-10 flex items-center justify-center">
+                    <div className="w-64 h-48 border-2 border-teal-400/50 rounded-2xl relative">
+                      {/* Scanning Line */}
+                      <motion.div 
+                        initial={{ top: '0%' }}
+                        animate={{ top: '100%' }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-[0_0_15px_rgba(45,212,191,0.8)]"
+                      />
+                      {/* Corners */}
+                      <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-teal-500 rounded-tl-lg"></div>
+                      <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-teal-500 rounded-tr-lg"></div>
+                      <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-teal-500 rounded-bl-lg"></div>
+                      <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-teal-500 rounded-br-lg"></div>
+                    </div>
+                  </div>
+
+                  <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 z-20">
                     <button 
                       onClick={stopCamera}
-                      className="bg-rose-500 hover:bg-rose-600 text-white p-3 rounded-full shadow-lg transition-transform active:scale-95"
+                      className="bg-white/10 backdrop-blur-xl border border-white/20 text-white p-4 rounded-full shadow-lg hover:bg-rose-500 transition-all active:scale-90"
                     >
                       <X size={24} />
                     </button>
                     <button 
                       onClick={capturePhoto}
-                      className="bg-white text-teal-700 font-bold px-6 py-3 rounded-full shadow-lg transition-transform active:scale-95"
+                      className="bg-teal-500 hover:bg-teal-400 text-white font-black px-10 py-4 rounded-full shadow-2xl shadow-teal-500/40 transition-all active:scale-95 text-lg uppercase tracking-wider"
                     >
                       Capture
                     </button>
                   </div>
                 </div>
               ) : imagePreview ? (
-                <div className="relative w-full h-full min-h-[200px] flex flex-col items-center">
-                  <img src={imagePreview} alt="Medicine Label" className="max-h-64 object-contain rounded-xl shadow-md mb-4" />
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); setImagePreview(null); setExtractedData(null); }}
-                    className="text-sm text-rose-500 font-medium hover:text-rose-600"
-                  >
-                    Remove Image
-                  </button>
+                <div className="relative w-full h-[300px] flex flex-col items-center justify-center p-4">
+                  <motion.img 
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    src={imagePreview} 
+                    alt="Medicine Label" 
+                    className="max-h-full max-w-full object-contain rounded-2xl shadow-2xl border-4 border-white mb-6" 
+                  />
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setIsCameraOpen(true)}
+                      className="text-xs font-bold text-teal-600 hover:underline uppercase tracking-widest"
+                    >
+                      Retake
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setImagePreview(null); setExtractedData(null); }}
+                      className="text-xs font-bold text-rose-500 hover:underline uppercase tracking-widest"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-center gap-4 w-full">
-                  <div className="flex gap-4 w-full">
+                <div className="flex flex-col items-center gap-8 w-full p-10">
+                  <div className="grid grid-cols-2 gap-4 w-full">
                     <button 
                       onClick={startCamera}
-                      className="flex-1 bg-white border border-slate-200 hover:border-teal-400 hover:bg-teal-50 text-slate-700 font-medium py-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-all shadow-sm"
+                      className="group bg-white border border-slate-100 hover:border-teal-500 hover:bg-teal-50 text-slate-800 font-bold py-8 rounded-[2rem] flex flex-col items-center justify-center gap-4 transition-all shadow-xl shadow-slate-200/50"
                     >
-                      <Camera size={28} className="text-teal-600" />
-                      Take Photo
+                      <div className="p-4 bg-teal-100 text-teal-600 rounded-2xl group-hover:rotate-6 transition-transform">
+                        <Camera size={32} />
+                      </div>
+                      <span className="text-sm uppercase tracking-widest">Live Scan</span>
                     </button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
-                      className="flex-1 bg-white border border-slate-200 hover:border-teal-400 hover:bg-teal-50 text-slate-700 font-medium py-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-all shadow-sm"
+                      className="group bg-white border border-slate-100 hover:border-teal-500 hover:bg-teal-50 text-slate-800 font-bold py-8 rounded-[2rem] flex flex-col items-center justify-center gap-4 transition-all shadow-xl shadow-slate-200/50"
                     >
-                      <Upload size={28} className="text-teal-600" />
-                      Upload File
+                      <div className="p-4 bg-teal-100 text-teal-600 rounded-2xl group-hover:-rotate-6 transition-transform">
+                        <Upload size={32} />
+                      </div>
+                      <span className="text-sm uppercase tracking-widest">Upload DB</span>
                     </button>
                   </div>
-                  <p className="text-slate-400 text-sm mt-2 text-center">Ensure the label is clearly visible</p>
+                  <div className="flex flex-col items-center text-center">
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em] mb-1">OCR Protocol Active</p>
+                    <p className="text-slate-400 text-[10px] max-w-[200px]">Ensure the medicine label is centered and illuminated for maximum extraction accuracy.</p>
+                  </div>
                 </div>
               )}
               <input 

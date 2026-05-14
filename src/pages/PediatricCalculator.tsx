@@ -2,28 +2,46 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Calculator, Baby, AlertTriangle, Info, ShieldCheck, Weight, Syringe } from 'lucide-react';
+import { calculateMgDose, calculateMlVolume, isPediatric as checkPediatric } from '../lib/pharmaUtils';
 
 export default function PediatricCalculator() {
   const { userProfile, patientData } = useAuth();
   
   const [drugName, setDrugName] = useState('');
+  const [age, setAge] = useState<number | ''>(patientData?.age || '');
+  const [weightKg, setWeightKg] = useState<number | ''>(patientData?.weightKg || '');
   const [targetDoseMgKg, setTargetDoseMgKg] = useState<number | ''>('');
   const [concentrationMg, setConcentrationMg] = useState<number | ''>('');
   const [concentrationMl, setConcentrationMl] = useState<number | ''>(1);
   
+  const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [calculatedDoseMg, setCalculatedDoseMg] = useState<number | null>(null);
   const [calculatedVolumeMl, setCalculatedVolumeMl] = useState<number | null>(null);
 
-  const isPediatric = patientData?.age ? patientData.age < 18 : false;
+  const isPediatric = age !== '' ? checkPediatric(Number(age)) : (patientData?.age ? checkPediatric(patientData.age) : false);
+
+  const validate = (name: string, value: number | '') => {
+    let error = '';
+    if (value !== '' && value <= 0) {
+      error = 'Must be a positive number';
+    }
+    setErrors(prev => ({ ...prev, [name]: error }));
+    return error === '';
+  };
 
   useEffect(() => {
-    if (patientData?.weightKg && targetDoseMgKg !== '') {
-      const weight = patientData.weightKg;
-      const totalMg = weight * Number(targetDoseMgKg);
+    const w = weightKg !== '' ? Number(weightKg) : Number(patientData?.weightKg);
+    const d = targetDoseMgKg !== '' ? Number(targetDoseMgKg) : 0;
+    
+    if (w > 0 && d > 0) {
+      const totalMg = calculateMgDose(w, d);
       setCalculatedDoseMg(totalMg);
 
-      if (concentrationMg !== '' && concentrationMl !== '') {
-        const volume = (totalMg / Number(concentrationMg)) * Number(concentrationMl);
+      const cmg = concentrationMg !== '' ? Number(concentrationMg) : 0;
+      const cml = concentrationMl !== '' ? Number(concentrationMl) : 0;
+
+      if (cmg > 0 && cml > 0) {
+        const volume = calculateMlVolume(totalMg, cmg, cml);
         setCalculatedVolumeMl(volume);
       } else {
         setCalculatedVolumeMl(null);
@@ -32,7 +50,7 @@ export default function PediatricCalculator() {
       setCalculatedDoseMg(null);
       setCalculatedVolumeMl(null);
     }
-  }, [patientData?.weightKg, targetDoseMgKg, concentrationMg, concentrationMl]);
+  }, [weightKg, targetDoseMgKg, concentrationMg, concentrationMl, patientData?.weightKg]);
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
@@ -58,26 +76,65 @@ export default function PediatricCalculator() {
           {/* Input Section */}
           <div className="md:col-span-7 flex flex-col gap-6">
             
-            {/* Patient Context */}
-            <div className={`border rounded-[2rem] p-6 flex items-center justify-between ${isPediatric ? 'bg-amber-50 border-amber-200' : 'bg-white/70 backdrop-blur-xl border-white/60 shadow-xl'}`}>
-              <div className="flex items-center gap-4">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${isPediatric ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-slate-100 text-slate-500'}`}>
-                  {isPediatric ? <Baby size={24} /> : <Weight size={24} />}
+            {/* Patient Context & Inputs */}
+            <div className={`bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2rem] p-6 space-y-6`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${isPediatric ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-slate-100 text-slate-500'}`}>
+                    {isPediatric ? <Baby size={24} /> : <Weight size={24} />}
+                  </div>
+                  <div>
+                    <h2 className={`font-bold ${isPediatric ? 'text-amber-900' : 'text-slate-800'}`}>
+                      {isPediatric ? 'Pediatric Patient Profile' : 'Adult Patient Profile'}
+                    </h2>
+                    <p className={`text-sm text-slate-500 uppercase font-bold tracking-widest text-[10px]`}>
+                      Initialize weight-based verification
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className={`font-bold ${isPediatric ? 'text-amber-900' : 'text-slate-800'}`}>
-                    {isPediatric ? 'Pediatric Patient Profile' : 'Adult Patient Profile'}
-                  </h2>
-                  <p className={`text-sm ${isPediatric ? 'text-amber-700/80' : 'text-slate-500'}`}>
-                    Age: {patientData?.age} yrs • Weight: {patientData?.weightKg} kg
-                  </p>
+                {isPediatric && (
+                  <div className="hidden sm:flex items-center gap-1 text-amber-600 bg-amber-100 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
+                    <AlertTriangle size={14} /> High Risk
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Patient Age (Years)</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      value={age}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Number(e.target.value);
+                        setAge(val);
+                        validate('age', val);
+                      }}
+                      placeholder="e.g. 5"
+                      className={`w-full px-4 py-3 rounded-xl border bg-white focus:ring-2 outline-none transition-all ${errors.age ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-indigo-500'}`}
+                    />
+                    {errors.age && <p className="text-[10px] font-bold text-rose-500 mt-1 ml-1">{errors.age}</p>}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Current Weight (kg)</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      value={weightKg}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Number(e.target.value);
+                        setWeightKg(val);
+                        validate('weight', val);
+                      }}
+                      placeholder="e.g. 18.5"
+                      className={`w-full px-4 py-3 rounded-xl border bg-white focus:ring-2 outline-none transition-all ${errors.weight ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-indigo-500'}`}
+                    />
+                    {errors.weight && <p className="text-[10px] font-bold text-rose-500 mt-1 ml-1">{errors.weight}</p>}
+                  </div>
                 </div>
               </div>
-              {isPediatric && (
-                <div className="hidden sm:flex items-center gap-1 text-amber-600 bg-amber-100 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                  <AlertTriangle size={14} /> High Risk
-                </div>
-              )}
             </div>
 
             {/* Calculator Form */}
@@ -89,7 +146,7 @@ export default function PediatricCalculator() {
 
               <div className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Drug Name (Optional)</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Drug Name (Optional)</label>
                   <input 
                     type="text" 
                     value={drugName}
@@ -100,43 +157,62 @@ export default function PediatricCalculator() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Target Dose (mg/kg)</label>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Target Dose (mg/kg)</label>
                   <div className="relative">
                     <input 
                       type="number" 
                       value={targetDoseMgKg}
-                      onChange={(e) => setTargetDoseMgKg(e.target.value ? Number(e.target.value) : '')}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? '' : Number(e.target.value);
+                        setTargetDoseMgKg(val);
+                        validate('dosage', val);
+                      }}
                       placeholder="e.g., 15" 
-                      className="w-full pl-4 pr-16 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
+                      className={`w-full pl-4 pr-16 py-3 rounded-xl border bg-white focus:ring-2 outline-none transition-all ${errors.dosage ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-indigo-500'}`}
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">mg/kg</span>
+                    <span className="absolute right-4 top-[14px] text-slate-400 font-medium text-xs">mg/kg</span>
+                    {errors.dosage && <p className="text-[10px] font-bold text-rose-500 mt-1 ml-1">{errors.dosage}</p>}
                   </div>
                   <p className="text-xs text-slate-500 mt-1">Consult a physician or drug reference for the correct target dose.</p>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100">
-                  <label className="block text-sm font-medium text-slate-700 mb-3">Liquid Concentration (Optional)</label>
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex-1">
-                      <input 
-                        type="number" 
-                        value={concentrationMg}
-                        onChange={(e) => setConcentrationMg(e.target.value ? Number(e.target.value) : '')}
-                        placeholder="e.g., 250" 
-                        className="w-full pl-4 pr-12 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                      />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">mg</span>
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-3 block">Liquid Concentration (Required for mL)</label>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <div className="relative">
+                        <input 
+                          type="number" 
+                          value={concentrationMg}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                            setConcentrationMg(val);
+                            validate('concentration', val);
+                          }}
+                          placeholder="e.g., 250" 
+                          className={`w-full pl-4 pr-12 py-3 rounded-xl border bg-white focus:ring-2 outline-none transition-all ${errors.concentration ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-indigo-500'}`}
+                        />
+                        <span className="absolute right-4 top-[14px] text-slate-400 font-medium text-xs">mg</span>
+                      </div>
+                      {errors.concentration && <p className="text-[10px] font-bold text-rose-500 mt-1 ml-1">{errors.concentration}</p>}
                     </div>
-                    <span className="text-slate-400 font-bold">per</span>
-                    <div className="relative flex-1">
-                      <input 
-                        type="number" 
-                        value={concentrationMl}
-                        onChange={(e) => setConcentrationMl(e.target.value ? Number(e.target.value) : '')}
-                        placeholder="e.g., 5" 
-                        className="w-full pl-4 pr-12 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
-                      />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">mL</span>
+                    <span className="text-slate-400 font-bold mt-3">per</span>
+                    <div className="flex-1">
+                      <div className="relative">
+                        <input 
+                          type="number" 
+                          value={concentrationMl}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                            setConcentrationMl(val);
+                            validate('quantity', val);
+                          }}
+                          placeholder="e.g., 5" 
+                          className={`w-full pl-4 pr-12 py-3 rounded-xl border bg-white focus:ring-2 outline-none transition-all ${errors.quantity ? 'border-rose-300 focus:ring-rose-500' : 'border-slate-200 focus:ring-indigo-500'}`}
+                        />
+                        <span className="absolute right-4 top-[14px] text-slate-400 font-medium text-xs">mL</span>
+                      </div>
+                      {errors.quantity && <p className="text-[10px] font-bold text-rose-500 mt-1 ml-1">{errors.quantity}</p>}
                     </div>
                   </div>
                 </div>
@@ -167,7 +243,7 @@ export default function PediatricCalculator() {
                   </div>
                   {calculatedDoseMg !== null && (
                     <p className="text-xs text-indigo-200 mt-2">
-                      Based on {patientData?.weightKg} kg × {targetDoseMgKg} mg/kg
+                      Based on {weightKg || patientData?.weightKg || '--'} kg × {targetDoseMgKg} mg/kg
                     </p>
                   )}
                 </div>

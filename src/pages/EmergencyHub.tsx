@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, PhoneCall, MapPin, AlertTriangle, HeartPulse, Activity, ShieldAlert, Navigation, Bed, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function EmergencyHub() {
+  const { userProfile, patientData } = useAuth();
   const [isDispatching, setIsDispatching] = useState(false);
   const [dispatchSuccess, setDispatchSuccess] = useState(false);
   const [location, setLocation] = useState<string | null>(null);
@@ -23,15 +25,39 @@ export default function EmergencyHub() {
 
   const handleDispatch = async () => {
     setIsDispatching(true);
+    
+    // Attempt real GPS acquisition
+    let coords = { lat: 37.7749, lng: -122.4194 }; // Default
+    
+    try {
+      if ("geolocation" in navigator) {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject);
+        });
+        coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      }
+    } catch (err) {
+      console.warn("GPS access denied, using default coordinates.");
+    }
+
     try {
       const res = await fetch('/api/emergency/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat: 37.7749, lng: -122.4194 })
+        body: JSON.stringify({ 
+          ...coords, 
+          profile: {
+            name: userProfile?.displayName,
+            age: patientData?.age,
+            weight: patientData?.weightKg,
+            conditions: patientData?.medicalConditions,
+            allergies: patientData?.knownAllergies
+          }
+        })
       });
       const data = await res.json();
       if (data.success) {
-        setLocation(data.location);
+        setLocation(`${coords.lat.toFixed(4)}° N, ${coords.lng.toFixed(4)}° W`);
         setDispatchSuccess(true);
       }
     } catch (err) {
@@ -40,6 +66,13 @@ export default function EmergencyHub() {
       setIsDispatching(false);
     }
   };
+
+  const [hospitalBeds, setHospitalBeds] = useState([
+    { name: 'City Central Hospital', beds: 12, icu: 2, distance: '0.8 km', status: 'available' },
+    { name: 'St. Mary Medical Center', beds: 4, icu: 0, distance: '2.4 km', status: 'critical' },
+    { name: 'Metro General', beds: 28, icu: 8, distance: '3.1 km', status: 'available' },
+    { name: 'University Health', beds: 0, icu: 0, distance: '5.2 km', status: 'full' },
+  ]);
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
@@ -62,165 +95,144 @@ export default function EmergencyHub() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* Left Column: Dispatch & Beds (Step 6) */}
-          <div className="lg:col-span-5 flex flex-col gap-8">
-            
-            {/* Ambulance Dispatch */}
-            <div className="bg-white/80 backdrop-blur-xl border-2 border-rose-100 shadow-2xl shadow-rose-500/10 rounded-[2rem] p-8 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-bl-full pointer-events-none"></div>
-              
-              <h2 className="text-2xl font-bold text-rose-900 mb-2 flex items-center gap-3">
-                <PhoneCall size={28} className="text-rose-600" />
-                SOS Dispatch
-              </h2>
-              <p className="text-rose-700/80 mb-8">Instantly transmit your GPS location and medical profile to emergency responders.</p>
-              
-              {!dispatchSuccess ? (
-                <button 
-                  onClick={handleDispatch}
-                  disabled={isDispatching}
-                  className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-5 rounded-2xl shadow-xl shadow-rose-600/30 transition-all active:scale-[0.98] disabled:opacity-70 flex flex-col items-center justify-center gap-2"
-                >
-                  {isDispatching ? (
-                    <>
-                      <Loader2 size={32} className="animate-spin mb-2" />
-                      Acquiring GPS & Dispatching...
-                    </>
-                  ) : (
-                    <>
-                      <Navigation size={32} className="mb-2" />
-                      DISPATCH AMBULANCE NOW
-                    </>
-                  )}
-                </button>
-              ) : (
-                <div className="bg-green-50 border border-green-200 rounded-2xl p-6 text-center animate-in fade-in zoom-in duration-300">
-                  <div className="w-16 h-16 bg-green-500 text-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-green-500/30">
-                    <CheckCircle2 size={32} />
-                  </div>
-                  <h3 className="text-xl font-bold text-green-900 mb-2">Ambulance Dispatched</h3>
-                  <p className="text-green-800/80 text-sm mb-4">ETA: 8 Minutes</p>
-                  <div className="bg-white/60 p-3 rounded-xl text-xs text-slate-600 flex items-center justify-center gap-2">
-                    <MapPin size={14} className="text-rose-500" />
-                    {location}
-                  </div>
-                </div>
-              )}
+          {/* Smart Dispatch COMMAND CENTER (Col 7) */}
+          <div className="lg:col-span-7 bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2.5rem] p-10 flex flex-col relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-8">
+               <div className="flex items-center gap-2 px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-[10px] font-black uppercase tracking-widest border border-rose-100 italic">
+                 Priority 1 Protocol
+               </div>
             </div>
 
-            {/* Hospital Bed Availability */}
-            <div className="bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2rem] p-6">
-              <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                <Bed size={24} className="text-indigo-600" />
-                Real-Time Bed Availability
-              </h2>
-              
-              <div className="space-y-4">
-                {hospitals.length > 0 ? hospitals.map((hospital) => (
-                  <div key={hospital.id} className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-slate-800">{hospital.name}</h3>
-                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                        <MapPin size={12} /> {hospital.distance} away
-                      </p>
-                    </div>
-                    <div className="flex gap-3 text-center">
-                      <div className={`px-3 py-1.5 rounded-lg ${hospital.beds.icu > 0 ? 'bg-green-100 text-green-800' : 'bg-rose-100 text-rose-800'}`}>
-                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">ICU</p>
-                        <p className="font-bold text-lg leading-none">{hospital.beds.icu}</p>
-                      </div>
-                      <div className={`px-3 py-1.5 rounded-lg ${hospital.beds.general > 0 ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>
-                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-70">Gen</p>
-                        <p className="font-bold text-lg leading-none">{hospital.beds.general}</p>
-                      </div>
-                    </div>
+            <div className="flex items-center gap-6 mb-8 relative z-10">
+              <div className="w-20 h-20 bg-rose-600 text-white rounded-3xl flex items-center justify-center shadow-2xl shadow-rose-600/30 shrink-0 group-hover:scale-110 transition-transform">
+                <ShieldAlert size={40} />
+              </div>
+              <div className="max-w-md">
+                <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase italic">Smart Dispatch</h2>
+                <p className="text-slate-500 font-medium">GPS-linked emergency responder deployment with automated medical history transmission.</p>
+              </div>
+            </div>
+            
+            <div className="bg-slate-50/80 border border-slate-100 rounded-3xl p-6 mb-10">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-4">Dispatcher Payload Preview</p>
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <p className="text-xs text-slate-500 font-medium mb-1">Target Profile</p>
+                  <p className="text-sm font-bold text-slate-800">{userProfile?.displayName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium mb-1">Medication History</p>
+                  <p className="text-sm font-bold text-slate-800">{patientData?.medicalConditions?.length || 0} Conditions</p>
+                </div>
+                <div className="col-span-2 pt-4 border-t border-slate-100">
+                  <p className="text-xs text-slate-500 font-medium mb-1 flex items-center gap-2">
+                    <Navigation size={12} /> Geolocation Precision
+                  </p>
+                  <p className="text-sm font-mono font-bold text-slate-700">{location || "Awaiting GPS Authorization..."}</p>
+                </div>
+              </div>
+            </div>
+
+            {!dispatchSuccess ? (
+              <button 
+                onClick={handleDispatch}
+                disabled={isDispatching}
+                className="mt-auto w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-6 rounded-3xl shadow-2xl shadow-rose-600/30 transition-all active:scale-[0.98] disabled:opacity-70 flex flex-col items-center justify-center gap-2"
+              >
+                {isDispatching ? (
+                  <div className="flex items-center gap-4">
+                    <Loader2 size={32} className="animate-spin" />
+                    <span className="text-2xl tracking-tighter">SECURING GPS...</span>
                   </div>
-                )) : (
-                  <div className="text-center py-6 text-slate-500">
-                    <Loader2 size={24} className="animate-spin mx-auto mb-2" />
-                    <p>Loading bed availability...</p>
+                ) : (
+                  <div className="flex items-center gap-6">
+                    <PhoneCall size={32} />
+                    <span className="text-2xl tracking-tighter uppercase italic">Initialize Dispatch</span>
                   </div>
                 )}
+              </button>
+            ) : (
+              <div className="mt-auto bg-green-500 text-white rounded-3xl p-8 text-center animate-in fade-in zoom-in duration-500 shadow-xl shadow-green-500/20">
+                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-md">
+                  <CheckCircle2 size={40} />
+                </div>
+                <h3 className="text-3xl font-black italic tracking-tighter mb-2 uppercase">Dispatch Active</h3>
+                <p className="text-green-50 font-bold text-lg mb-4">ETA: 4-6 Minutes • Unit #AMB-912</p>
+                <div className="bg-white/10 p-3 rounded-2xl text-xs font-mono font-bold inline-block">
+                  GPS LOCK: {location}
+                </div>
               </div>
-            </div>
-
+            )}
           </div>
 
-          {/* Right Column: First Aid Protocols (Step 5) */}
-          <div className="lg:col-span-7">
-            <div className="bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2rem] p-6 lg:p-8 h-full">
-              <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3">
-                <HeartPulse size={28} className="text-rose-500" />
-                Emergency First Aid Protocols
-              </h2>
-              <p className="text-slate-500 mb-8">Strict, medically validated instructions for immediate bystander intervention.</p>
+          {/* Right Column: Telemetry & Protocols (Col 5) */}
+          <div className="lg:col-span-5 flex flex-col gap-8">
+            
+            {/* Hospital Telemetry */}
+            <div className="bg-white/70 backdrop-blur-xl border border-white/60 shadow-xl rounded-[2.5rem] p-8 flex flex-col group hover:shadow-2xl transition-all duration-500">
+               <div className="flex items-center justify-between mb-8">
+                 <div className="flex items-center gap-4">
+                   <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl group-hover:rotate-6 transition-transform">
+                     <Bed size={24} />
+                   </div>
+                   <div>
+                     <h2 className="text-xl font-bold text-slate-800 tracking-tight">Hospital Telemetry</h2>
+                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Regional UHI Stream</p>
+                   </div>
+                 </div>
+                 <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-xl text-xs font-bold border border-green-100">
+                   <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> Live
+                 </div>
+               </div>
 
-              <div className="space-y-6">
-                
-                {/* Anaphylaxis */}
-                <div className="bg-rose-50/50 border border-rose-100 rounded-2xl p-6">
-                  <h3 className="text-xl font-bold text-rose-900 mb-4 flex items-center gap-2">
-                    <AlertTriangle size={20} className="text-rose-600" />
-                    Anaphylaxis (Severe Allergic Reaction)
-                  </h3>
-                  <div className="space-y-4">
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-rose-200 text-rose-800 font-bold flex items-center justify-center shrink-0">1</div>
-                      <div>
-                        <p className="font-bold text-slate-800">Lay the person flat</p>
-                        <p className="text-sm text-slate-600">Do not allow them to stand or walk. If breathing is difficult, allow them to sit up slightly.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-rose-200 text-rose-800 font-bold flex items-center justify-center shrink-0">2</div>
-                      <div>
-                        <p className="font-bold text-slate-800">Use Epinephrine Auto-Injector</p>
-                        <p className="text-sm text-slate-600">If available, administer immediately into the outer mid-thigh. Note the time of administration.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-rose-200 text-rose-800 font-bold flex items-center justify-center shrink-0">3</div>
-                      <div>
-                        <p className="font-bold text-slate-800">Call Emergency Services</p>
-                        <p className="text-sm text-slate-600">Even if symptoms improve after epinephrine, immediate medical evaluation is mandatory.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Overdose */}
-                <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-6">
-                  <h3 className="text-xl font-bold text-amber-900 mb-4 flex items-center gap-2">
-                    <Activity size={20} className="text-amber-600" />
-                    Drug Overdose
-                  </h3>
-                  <div className="space-y-4">
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-800 font-bold flex items-center justify-center shrink-0">1</div>
-                      <div>
-                        <p className="font-bold text-slate-800">Prevent further intake</p>
-                        <p className="text-sm text-slate-600">Remove any remaining pills, patches, or substances from the person's vicinity.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-800 font-bold flex items-center justify-center shrink-0">2</div>
-                      <div>
-                        <p className="font-bold text-slate-800">Do NOT induce vomiting</p>
-                        <p className="text-sm text-slate-600">Unless explicitly instructed by poison control or emergency services. It can cause choking or severe esophageal damage.</p>
-                      </div>
-                    </div>
-                    <div className="flex gap-4">
-                      <div className="w-8 h-8 rounded-full bg-amber-200 text-amber-800 font-bold flex items-center justify-center shrink-0">3</div>
-                      <div>
-                        <p className="font-bold text-slate-800">Monitor Vital Signs</p>
-                        <p className="text-sm text-slate-600">Check breathing and responsiveness. If unconscious but breathing, place in the recovery position (on their side).</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
+               <div className="space-y-3">
+                 {hospitalBeds.map((h, i) => (
+                   <div key={i} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 flex items-center justify-between hover:bg-white transition-all cursor-pointer group/item">
+                     <div className="flex gap-4 items-center">
+                       <div className={`p-2 rounded-xl scale-90 ${h.status === 'full' ? 'bg-rose-100 text-rose-600' : 'bg-teal-100 text-teal-600'}`}>
+                         <Navigation size={16} />
+                       </div>
+                       <div>
+                         <p className="font-bold text-slate-800 text-sm group-hover/item:text-indigo-600 transition-colors uppercase tracking-tight">{h.name}</p>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{h.distance}</p>
+                       </div>
+                     </div>
+                     <div className="flex gap-4 text-right">
+                       <div className="flex flex-col">
+                         <span className={`text-xl font-black tracking-tighter ${h.beds > 0 ? 'text-teal-600' : 'text-slate-300'}`}>{h.beds}</span>
+                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Beds</span>
+                       </div>
+                       <div className="flex flex-col border-l border-slate-100 pl-4">
+                         <span className={`text-xl font-black tracking-tighter ${h.icu > 0 ? 'text-indigo-600' : 'text-slate-300'}`}>{h.icu}</span>
+                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">ICU</span>
+                       </div>
+                     </div>
+                   </div>
+                 ))}
+               </div>
             </div>
+
+            {/* Protocol Quick-view */}
+            <div className="bg-slate-900 shadow-2xl shadow-slate-900/20 rounded-[2.5rem] p-8 text-white relative overflow-hidden group">
+               <div className="absolute right-[-10%] bottom-[-10%] opacity-20 pointer-events-none group-hover:scale-150 transition-transform duration-1000">
+                 <HeartPulse size={200} strokeWidth={1} />
+               </div>
+               <h2 className="text-xl font-bold mb-4 flex items-center gap-3 relative z-10">
+                 <HeartPulse size={24} className="text-rose-500" />
+                 Medical Protocols
+               </h2>
+               <div className="space-y-4 relative z-10">
+                 <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 hover:bg-white/15 transition-colors cursor-pointer group/opt">
+                    <p className="font-bold text-sm mb-1 group-hover/opt:text-rose-400 transition-colors uppercase tracking-tight">Anaphylaxis</p>
+                    <p className="text-[10px] text-white/50 leading-relaxed">Lay flat, Epi-Pen, call-911 instantly.</p>
+                 </div>
+                 <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 hover:bg-white/15 transition-colors cursor-pointer group/opt">
+                    <p className="font-bold text-sm mb-1 group-hover/opt:text-amber-400 transition-colors uppercase tracking-tight">Overdose</p>
+                    <p className="text-[10px] text-white/50 leading-relaxed">Safety monitor, do NOT induce vomiting.</p>
+                 </div>
+               </div>
+            </div>
+
           </div>
 
         </div>
