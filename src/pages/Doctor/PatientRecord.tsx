@@ -26,7 +26,18 @@ export default function PatientRecord() {
   const [tempDOB, setTempDOB] = useState('');
   const [updatingName, setUpdatingName] = useState(false);
   const [updatingDOB, setUpdatingDOB] = useState(false);
-  const [newNote, setNewNote] = useState({ category: 'Subjective', content: '', diagnosis: '', time: new Date().toISOString().slice(0, 16) });
+  const [newNote, setNewNote] = useState({ 
+    category: 'Subjective', 
+    content: '', 
+    diagnosis: '', 
+    time: new Date().toISOString().slice(0, 16),
+    soap: {
+      subjective: '',
+      objective: '',
+      assessment: '',
+      plan: ''
+    }
+  });
   const [newExam, setNewExam] = useState({ testName: '', datePerformed: new Date().toISOString().split('T')[0], resultValue: '', unit: '', status: 'Normal' });
   const [noteSort, setNoteSort] = useState({ field: 'createdAt', order: 'desc' as 'asc' | 'desc' });
   const [savingNote, setSavingNote] = useState(false);
@@ -100,13 +111,18 @@ export default function PatientRecord() {
 
     setSavingNote(true);
     try {
+      let content = newNote.content;
+      if (newNote.category === 'Comprehensive SOAP') {
+        content = `[Subjective]: ${newNote.soap.subjective}\n\n[Objective]: ${newNote.soap.objective}\n\n[Assessment]: ${newNote.soap.assessment}\n\n[Plan]: ${newNote.soap.plan}`;
+      }
+
       const noteData = {
         patientId,
         doctorId: userProfile.uid,
         doctorName: userProfile.displayName || 'Doctor',
         category: newNote.category,
-        content: newNote.content,
-        diagnosis: newNote.category === 'Assessment' ? newNote.diagnosis : '',
+        content: content,
+        diagnosis: newNote.category === 'Assessment' ? newNote.diagnosis : (newNote.category === 'Comprehensive SOAP' ? newNote.soap.assessment : ''),
         clinicalTime: newNote.time,
         createdAt: serverTimestamp()
       };
@@ -123,7 +139,13 @@ export default function PatientRecord() {
       setClinicalNotes(nSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       
       setIsNoteModalOpen(false);
-      setNewNote({ category: 'Subjective', content: '', diagnosis: '', time: new Date().toISOString().slice(0, 16) });
+      setNewNote({ 
+        category: 'Subjective', 
+        content: '', 
+        diagnosis: '', 
+        time: new Date().toISOString().slice(0, 16),
+        soap: { subjective: '', objective: '', assessment: '', plan: '' }
+      });
     } catch (error) {
       console.error("Error adding clinical note:", error);
     } finally {
@@ -1079,7 +1101,8 @@ export default function PatientRecord() {
                                      note.category === 'Subjective' ? 'bg-blue-100 text-blue-600' :
                                      note.category === 'Objective' ? 'bg-teal-100 text-teal-600' :
                                      note.category === 'Assessment' ? 'bg-amber-100 text-amber-600' :
-                                     'bg-rose-100 text-rose-600'
+                                     note.category === 'Plan' ? 'bg-rose-100 text-rose-600' :
+                                     'bg-indigo-100 text-indigo-600'
                                    }`}>
                                      {note.category}
                                    </span>
@@ -1101,9 +1124,9 @@ export default function PatientRecord() {
                               </div>
                            </div>
                         </div>
-                        <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
-                           <p className="text-sm font-medium text-slate-600 leading-relaxed italic">
-                             "{note.content}"
+                        <div className={`p-6 rounded-2xl border transition-colors ${note.category === 'Comprehensive SOAP' ? 'bg-indigo-50/30 border-indigo-100' : 'bg-slate-50/50 border-slate-100'}`}>
+                           <p className="text-sm font-medium text-slate-600 leading-relaxed italic whitespace-pre-wrap">
+                             {note.content}
                            </p>
                         </div>
                       </div>
@@ -1165,8 +1188,8 @@ export default function PatientRecord() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Documentation Category</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {['Subjective', 'Objective', 'Assessment', 'Plan'].map((cat) => (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {['Subjective', 'Objective', 'Assessment', 'Plan', 'Comprehensive SOAP'].map((cat) => (
                         <button
                           key={cat}
                           type="button"
@@ -1207,17 +1230,60 @@ export default function PatientRecord() {
                   </div>
                 )}
 
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Observation Content</label>
-                  <textarea
-                    required
-                    rows={6}
-                    className="w-full px-6 py-5 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-3xl text-sm font-bold shadow-inner outline-none transition-all placeholder:text-slate-300"
-                    placeholder="Transcribe findings, patient responses, and clinical paths..."
-                    value={newNote.content}
-                    onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
-                  ></textarea>
-                </div>
+                {newNote.category === 'Comprehensive SOAP' ? (
+                  <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Subjective</label>
+                        <textarea 
+                          rows={3}
+                          placeholder="Patient's symptoms and history..."
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-xs font-bold shadow-inner outline-none transition-all"
+                          onChange={(e) => setNewNote({ ...newNote, soap: { ...newNote.soap, subjective: e.target.value } })}
+                        ></textarea>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Objective</label>
+                        <textarea 
+                          rows={3}
+                          placeholder="Vital signs, physical exam and lab results..."
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-xs font-bold shadow-inner outline-none transition-all"
+                          onChange={(e) => setNewNote({ ...newNote, soap: { ...newNote.soap, objective: e.target.value } })}
+                        ></textarea>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Assessment</label>
+                        <textarea 
+                          rows={3}
+                          placeholder="Diagnosis and clinical reasoning..."
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-xs font-bold shadow-inner outline-none transition-all"
+                          onChange={(e) => setNewNote({ ...newNote, soap: { ...newNote.soap, assessment: e.target.value } })}
+                        ></textarea>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Plan</label>
+                        <textarea 
+                          rows={3}
+                          placeholder="Future treatments and follow-up data..."
+                          className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-xs font-bold shadow-inner outline-none transition-all"
+                          onChange={(e) => setNewNote({ ...newNote, soap: { ...newNote.soap, plan: e.target.value } })}
+                        ></textarea>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Observation Content</label>
+                    <textarea
+                      required
+                      rows={6}
+                      className="w-full px-6 py-5 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-3xl text-sm font-bold shadow-inner outline-none transition-all placeholder:text-slate-300"
+                      placeholder="Transcribe findings, patient responses, and clinical paths..."
+                      value={newNote.content}
+                      onChange={(e) => setNewNote({ ...newNote, content: e.target.value })}
+                    ></textarea>
+                  </div>
+                )}
 
                 <div className="pt-4">
                   <button 

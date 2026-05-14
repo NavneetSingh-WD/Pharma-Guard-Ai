@@ -4,7 +4,7 @@ import { db, storage } from '../firebase';
 import { collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, orderBy, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, Paperclip, Loader2, FileText, Copy, CheckCircle2, Activity, SignalLow, Check, Smile, Clipboard, MessageSquare, Heart, ThumbsUp, Zap, Star, Eraser, PenTool } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, Paperclip, Loader2, FileText, Copy, CheckCircle2, Activity, SignalLow, Check, Smile, Clipboard, MessageSquare, Heart, ThumbsUp, Zap, Star, Eraser, PenTool, CheckCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const configuration = {
@@ -147,17 +147,21 @@ export default function ConsultationRoom() {
         };
 
         const roomRef = doc(db, 'chatRooms', roomId);
-        const roomSnap = await getDoc(roomRef);
+        let roomSnap = await getDoc(roomRef);
 
         if (!roomSnap.exists()) {
-          console.error("Room does not exist");
-          if (isMounted) navigate('/telemedicine');
-          return;
+          // If room doesn't exist (e.g. joined via Appointment ID for first time), initialize it
+          await setDoc(roomRef, {
+            participants: [currentUser?.uid],
+            createdAt: new Date().toISOString(),
+            status: 'active'
+          });
+          roomSnap = await getDoc(roomRef);
         }
 
         const roomData = roomSnap.data();
 
-        if (!roomData.participants?.includes(currentUser?.uid)) {
+        if (roomData && !roomData.participants?.includes(currentUser?.uid)) {
           await updateDoc(roomRef, {
             participants: arrayUnion(currentUser?.uid)
           });
@@ -697,41 +701,33 @@ export default function ConsultationRoom() {
                   const time = msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
                   
                   return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2`}>
-                      <div className={`flex items-center gap-2 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{msg.senderName}</span>
-                        <span className="text-[9px] font-bold text-slate-300 tabular-nums">{time}</span>
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 mb-2`}>
+                      <div className={`flex items-center gap-2 mb-1 px-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{isMe ? 'You' : msg.senderName}</span>
+                        <span className="text-[9px] font-bold text-slate-400 tabular-nums">{time}</span>
                       </div>
                       
-                      <div className={`relative group max-w-[85%] p-4 rounded-3xl shadow-sm transition-all hover:shadow-md ${
+                      <div className={`relative max-w-[85%] p-4 rounded-3xl shadow-sm transition-all hover:shadow-md ${
                         isMe 
-                          ? 'bg-gradient-to-br from-indigo-600 to-violet-700 text-white rounded-tr-sm' 
-                          : 'bg-white border border-slate-100 text-slate-800 rounded-tl-sm shadow-slate-200/50'
+                          ? 'bg-indigo-600 text-white rounded-tr-none' 
+                          : 'bg-slate-100 border border-slate-200 text-slate-800 rounded-tl-none'
                       }`}>
                         {msg.fileUrl ? (
                           <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group/file">
-                            <div className={`p-2 rounded-xl ${isMe ? 'bg-white/10' : 'bg-slate-100'}`}>
-                              <FileText size={18} className={isMe ? 'text-white' : 'text-indigo-600'} />
+                            <div className={`p-2 rounded-xl ${isMe ? 'bg-white/20' : 'bg-white shadow-sm'}`}>
+                               <FileText size={18} className={isMe ? 'text-white' : 'text-indigo-600'} />
                             </div>
                             <div className="flex flex-col">
-                              <span className="text-xs font-black truncate max-w-[150px]">{msg.fileName || 'Document'}</span>
-                              <span className={`text-[10px] font-bold uppercase tracking-widest ${isMe ? 'text-white/60' : 'text-slate-400'}`}>External Link</span>
+                               <span className="text-xs font-black truncate max-w-[150px]">{msg.fileName || 'Document'}</span>
+                               <span className={`text-[10px] font-bold uppercase tracking-widest ${isMe ? 'text-white/60' : 'text-slate-400'}`}>Secure Node</span>
                             </div>
                           </a>
                         ) : (
                           <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
                         )}
-
                         {isMe && (
-                          <div className="absolute -bottom-5 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Protocol Transmitted</span>
-                            <Check size={10} className="text-indigo-400" />
-                          </div>
-                        )}
-                        
-                        {isMe && !msg.fileUrl && (
-                          <div className="absolute bottom-2 right-3">
-                             <Check size={12} className="text-white/40" />
+                          <div className="flex justify-end mt-1">
+                            <CheckCheck size={14} className="text-white/70" />
                           </div>
                         )}
                       </div>

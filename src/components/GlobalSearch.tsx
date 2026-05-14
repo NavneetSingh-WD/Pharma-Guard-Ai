@@ -71,45 +71,62 @@ export default function GlobalSearch() {
           searchResults.push(...patients);
         }
 
-        // 2. Search Prescriptions
-        const rxQ = query(
-          collection(db, 'prescriptions'),
-          limit(50)
-        );
+        // 2. Search Prescriptions (Filtered by role)
+        let rxQ;
+        if (userProfile?.role === 'admin' || userProfile?.role === 'pharmacist') {
+          rxQ = query(collection(db, 'prescriptions'), limit(50));
+        } else if (userProfile?.role === 'doctor') {
+          rxQ = query(collection(db, 'prescriptions'), where('doctorId', '==', userProfile.uid), limit(50));
+        } else {
+          rxQ = query(collection(db, 'prescriptions'), where('patientId', '==', userProfile?.uid), limit(50));
+        }
+        
         const rxSnap = await getDocs(rxQ);
         const prescriptions = rxSnap.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .map(doc => {
+            const data = doc.data() as object;
+            return { id: doc.id, ...data } as any;
+          })
           .filter(rx => 
-            rx.medicationName?.toLowerCase().includes(lowerTerm) || 
+            rx.medications?.some((m: any) => m.name?.toLowerCase().includes(lowerTerm)) ||
             rx.patientName?.toLowerCase().includes(lowerTerm)
           )
           .map(rx => ({
             id: rx.id,
             type: 'prescription' as const,
-            title: rx.medicationName || 'Unnamed Med',
-            subtitle: `For ${rx.patientName} • ${rx.dosage}`,
+            title: rx.medications?.[0]?.name || 'Prescription',
+            subtitle: `For ${rx.patientName || 'Patient'}`,
             path: userProfile?.role === 'patient' ? '/' : (userProfile?.role === 'pharmacist' ? '/inventory' : `/patient/${rx.patientId}`)
           }));
         searchResults.push(...prescriptions);
 
-        // 3. Search Appointments
-        const aptQ = query(
-          collection(db, 'appointments'),
-          limit(50)
-        );
+        // 3. Search Appointments (Filtered by role)
+        let aptQ;
+        if (userProfile?.role === 'admin') {
+          aptQ = query(collection(db, 'appointments'), limit(50));
+        } else if (userProfile?.role === 'doctor') {
+          aptQ = query(collection(db, 'appointments'), where('doctorId', '==', userProfile.uid), limit(50));
+        } else {
+          aptQ = query(collection(db, 'appointments'), where('patientId', '==', userProfile?.uid), limit(50));
+        }
+
         const aptSnap = await getDocs(aptQ);
         const appointments = aptSnap.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .map(doc => {
+            const data = doc.data() as object;
+            return { id: doc.id, ...data } as any;
+          })
           .filter(apt => 
             apt.patientName?.toLowerCase().includes(lowerTerm) || 
+            apt.doctorName?.toLowerCase().includes(lowerTerm) ||
             apt.type?.toLowerCase().includes(lowerTerm)
           )
           .map(apt => ({
             id: apt.id,
             type: 'appointment' as const,
             title: `${apt.type} Appointment`,
-            subtitle: `${apt.patientName} • ${apt.date} @ ${apt.time}`,
-            path: userProfile?.role === 'doctor' ? '/doctor-panel' : '/'
+            subtitle: `${apt.patientName} • ${apt.date}`,
+            path: userProfile?.role === 'doctor' ? '/doctor-panel' : '/appointments'
           }));
         searchResults.push(...appointments);
 

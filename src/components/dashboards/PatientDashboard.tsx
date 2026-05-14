@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { User, Activity, AlertTriangle, Video, MapPin, PhoneCall, Search, Pill, FileText, Clock, CheckCircle2, Bell, AlertCircle, ShieldAlert, Store, Settings, ScanText, Stethoscope, Calendar } from 'lucide-react';
+import { User, Activity, AlertTriangle, Video, MapPin, PhoneCall, Search, Pill, FileText, Clock, CheckCircle2, Bell, AlertCircle, ShieldAlert, Store, Settings, ScanText, Stethoscope, Calendar, Zap, ArrowRight } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -19,37 +19,56 @@ export default function PatientDashboard() {
     async function fetchData() {
       if (!currentUser) return;
       try {
+        setLoading(true);
+        console.log("DEBUG: PatientDashboard fetchData starting for", currentUser.uid);
+        
         // Fetch Prescriptions
-        const pq = query(
-          collection(db, 'prescriptions'),
-          where('patientId', '==', currentUser.uid),
-          orderBy('createdAt', 'desc'),
-          limit(3)
-        );
-        const pSnap = await getDocs(pq);
-        setPrescriptions(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
+        try {
+          const pq = query(
+            collection(db, 'prescriptions'),
+            where('patientId', '==', currentUser.uid),
+            orderBy('createdAt', 'desc'),
+            limit(3)
+          );
+          const pSnap = await getDocs(pq);
+          setPrescriptions(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          console.log("DEBUG: Prescriptions fetched:", pSnap.size);
+        } catch (perr) {
+          console.error("DEBUG: Prescriptions fetch error:", perr);
+          setPrescriptions([]); // Fallback
+        }
+        
         // Fetch Appointments
-        const aq = query(
-          collection(db, 'appointments'),
-          where('patientId', '==', currentUser.uid),
-          orderBy('date', 'asc'),
-          orderBy('time', 'asc'),
-          limit(3)
-        );
-        const aSnap = await getDocs(aq);
-        setAppointments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        try {
+          const aq = query(
+            collection(db, 'appointments'),
+            where('patientId', '==', currentUser.uid),
+            orderBy('date', 'asc'),
+            orderBy('time', 'asc'),
+            limit(3)
+          );
+          const aSnap = await getDocs(aq);
+          setAppointments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          console.log("DEBUG: Appointments fetched:", aSnap.size);
+        } catch (aerr) {
+          console.error("DEBUG: Appointments fetch error:", aerr);
+        }
 
         // Fetch Reminders
-        const rq = query(
-          collection(db, 'users', currentUser.uid, 'reminders'),
-          orderBy('createdAt', 'desc')
-        );
-        const rSnap = await getDocs(rq);
-        setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        try {
+          const rq = query(
+            collection(db, 'users', currentUser.uid, 'reminders'),
+            orderBy('createdAt', 'desc')
+          );
+          const rSnap = await getDocs(rq);
+          setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+          console.log("DEBUG: Reminders fetched:", rSnap.size);
+        } catch (rerr) {
+          console.error("DEBUG: Reminders fetch error:", rerr);
+        }
         
       } catch (e) {
-        console.error("Error fetching data:", e);
+        console.error("Error fetching data in PatientDashboard:", e);
       } finally {
         setLoading(false);
       }
@@ -70,7 +89,32 @@ export default function PatientDashboard() {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 auto-rows-[minmax(120px,auto)]">
+    <div className="flex flex-col gap-8">
+      {/* SOS Quick Trigger Area */}
+      <div className="bg-rose-600 rounded-[2.5rem] p-6 text-white shadow-xl shadow-rose-200 border border-rose-500 relative overflow-hidden group">
+         <div className="absolute right-[-2%] top-[-20%] opacity-10 pointer-events-none group-hover:rotate-12 transition-transform duration-1000">
+           <Zap size={180} strokeWidth={1} />
+         </div>
+         <div className="relative z-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+               <div className="w-14 h-14 bg-white text-rose-600 rounded-2xl flex items-center justify-center animate-pulse shadow-lg">
+                  <AlertTriangle size={28} fill="currentColor" />
+               </div>
+               <div>
+                  <h2 className="text-xl font-black italic uppercase tracking-tighter leading-none">Emergency SOS Console</h2>
+                  <p className="text-rose-100 text-xs font-semibold mt-1">Get immediate medical help from on-call doctors.</p>
+               </div>
+            </div>
+            <button 
+              onClick={() => navigate('/telemedicine')}
+              className="bg-white text-rose-600 px-8 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 shrink-0"
+            >
+               Request Emergency Consult <ArrowRight size={14} />
+            </button>
+         </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 auto-rows-[minmax(120px,auto)]">
       
       {/* Profile Summary (Col span 4, Row span 2) */}
       <div className="md:col-span-4 md:row-span-2 bg-white/70 backdrop-blur-xl border border-white/50 shadow-xl rounded-[2.5rem] p-8 flex flex-col hover:shadow-2xl transition-all duration-500 group">
@@ -284,30 +328,53 @@ export default function PatientDashboard() {
 
         {/* Upcoming Consultations */}
         <div className="lg:col-span-1 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
-              <Calendar size={20} />
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
+                <Calendar size={20} />
+              </div>
+              <h2 className="text-lg font-bold text-slate-800">Upcoming Sessions</h2>
             </div>
-            <h2 className="text-lg font-bold text-slate-800">Upcoming Consultations</h2>
+            <Link to="/appointments" className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">View All</Link>
           </div>
           <div className="space-y-3">
             {loading ? (
               <div className="flex justify-center py-6"><div className="animate-spin h-5 w-5 border-t-2 border-indigo-600 rounded-full"></div></div>
             ) : appointments.length > 0 ? (
-              appointments.map((apt) => (
-                <div key={apt.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 border-l-4 border-l-indigo-500 group cursor-pointer hover:bg-white transition-all" onClick={() => navigate('/telemedicine')}>
-                  <div className="flex justify-between items-start mb-2">
-                    <p className="text-xs font-black text-indigo-600 uppercase tracking-widest">{apt.time}</p>
-                    <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded uppercase">{apt.type}</span>
+              appointments.map((apt) => {
+                const isToday = apt.date === new Date().toISOString().split('T')[0];
+                return (
+                  <div key={apt.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 border-l-4 border-l-indigo-500 group cursor-pointer hover:bg-white transition-all flex flex-col gap-3" onClick={() => navigate('/appointments')}>
+                    <div className="flex justify-between items-start">
+                      <div className="flex flex-col">
+                        <p className="text-xs font-black text-indigo-600 uppercase tracking-widest leading-none mb-1">{apt.time}</p>
+                        <p className={`text-[8px] font-bold uppercase tracking-widest ${isToday ? 'text-teal-600 animate-pulse' : 'text-slate-400'}`}>
+                          {isToday ? 'Happening Today' : apt.date}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded uppercase">{apt.type}</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 uppercase tracking-tight">DR. {apt.doctorName || 'Medical'}</p>
+                    </div>
+                    {isToday && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/consultation/${apt.id}`);
+                        }}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-600/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Video size={14} /> Join Now
+                      </button>
+                    )}
                   </div>
-                  <p className="text-sm font-bold text-slate-800">Dr. {apt.doctorName || 'Medical'}</p>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-1">{apt.date}</p>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-                <p className="text-slate-400 text-sm">No upcoming sessions.</p>
-                <button onClick={() => navigate('/telemedicine')} className="mt-2 text-indigo-600 text-xs font-bold hover:underline">Book Consultation</button>
+                <p className="text-slate-400 text-sm italic">No upcoming sessions recorded.</p>
+                <button onClick={() => navigate('/appointments')} className="mt-4 px-4 py-2 bg-indigo-600 text-white text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-slate-900 transition-colors">Request Slot</button>
               </div>
             )}
           </div>
@@ -497,7 +564,7 @@ export default function PatientDashboard() {
            )}
         </div>
       </div>
-
     </div>
-  );
+  </div>
+);
 }

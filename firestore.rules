@@ -18,19 +18,24 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() { 
-      return isSignedIn() && (
-        request.auth.token.email == "goyalelectrocare@gmail.com" ||
-        getProfile().get('role', 'unassigned') == 'admin'
-      ); 
+      return isSignedIn() && request.auth.token.email == "goyalelectrocare@gmail.com";
     }
 
     function isDoctor() {
-      return isSignedIn() && getProfile().get('role', 'unassigned') == 'doctor';
+      return isSignedIn() && userExists() && getProfile().get('role', 'unassigned') == 'doctor';
     }
 
     function isPharmacist() {
-      return isSignedIn() && getProfile().get('role', 'unassigned') == 'pharmacist';
+      return isSignedIn() && userExists() && getProfile().get('role', 'unassigned') == 'pharmacist';
+    }
+
+    function isStaff() {
+      return isAdmin() || (isSignedIn() && userExists() && getProfile().get('status', 'pending') == 'active' && (getProfile().get('role', 'unassigned') in ['doctor', 'pharmacist']));
     }
 
     function isActiveDoctor() {
@@ -52,50 +57,27 @@ service cloud.firestore {
     // USERS COLLECTION (Global Registry)
     // ===============================================================
     match /users/{userId} {
-      // Logic for admin documents: only the user themselves OR another admin can access.
-      // Logic for other documents: owner, admin, or active staff (if patient).
-      allow get: if isValidId(userId) && (
-        request.auth.uid == userId || 
-        isAdmin() ||
-        (existing().get('role', 'unassigned') != 'admin' && (isActiveDoctor() || isActivePharmacist()))
-      );
-      
+      allow get: if isValidId(userId) && (request.auth.uid == userId || isAdmin() || isStaff());
       allow list: if isSignedIn() && (
         isAdmin() || 
-        ((isActiveDoctor() || isActivePharmacist()) && resource.data.get('role', 'unassigned') == 'patient')
+        resource.data.get('role', 'unassigned') in ['doctor', 'pharmacist'] ||
+        (isStaff() && resource.data.get('role', 'unassigned') == 'patient')
       );
       
       allow create: if isValidId(userId) && userId == request.auth.uid && (
         incoming().keys().hasAll(['uid', 'email', 'role', 'status', 'createdAt']) &&
-        incoming().uid == request.auth.uid &&
-        // Prevent self-promotion to admin during account creation
-        incoming().role in ['patient', 'doctor', 'pharmacist', 'unassigned'] &&
-        incoming().status in ['active', 'pending', 'rejected']
+        incoming().role in ['patient', 'doctor', 'pharmacist', 'unassigned']
       );
       
       allow update: if isValidId(userId) && (
-        // Admins have full access to update roles/status
-        isAdmin() ||
-        // Users can update their own profile details but NOT status/role (unless starting as unassigned)
+        isAdmin() || 
         (userId == request.auth.uid && (
-          // If the profile being updated belongs to an admin, ONLY an admin can update it (handled by first branch above or this branch)
-          // But wait, the user themselves should be able to update their own displayName even if they are admin? 
-          // The prompt says "Ensure that only users with the 'admin' role can access or modify admin-specific data."
-          // If the userId's document has role == 'admin', only an admin can modify it.
-          (existing().role == 'admin' && isAdmin()) ||
-          (existing().role != 'admin' && (
-            (existing().role == 'unassigned' && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'displayName', 'photoURL', 'updatedAt', 'medical'])) ||
-            (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'medical']))
-          ))
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'medical', 'role', 'status'])
         ))
       );
 
-      // Subcollections like reminders
-      match /{allSubcollections=**} {
-        allow read, write: if isSignedIn() && (
-          (request.auth.uid == userId && (existing().role != 'admin' || isAdmin())) || 
-          isAdmin()
-        );
+      match /reminders/{reminderId} {
+        allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       }
     }
 
@@ -103,118 +85,63 @@ service cloud.firestore {
     // PROFESSIONAL COLLECTIONS
     // ===============================================================
     match /doctors/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isValidId(userId) && userId == request.auth.uid;
+      allow read, write: if isSignedIn();
     }
 
     match /pharmacies/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isValidId(userId) && userId == request.auth.uid;
+      allow read, write: if isSignedIn();
     }
 
     // ===============================================================
     // CLINICAL COLLECTIONS
     // ===============================================================
     
-    // Patient Profile (Extended Data)
     match /patients/{userId} {
-      allow get: if isValidId(userId) && (
-        request.auth.uid == userId || 
-        isActiveDoctor() || 
-        isActivePharmacist() || 
-        isAdmin()
-      );
-      allow list: if isSignedIn() && (
-        isActiveDoctor() || 
-        isActivePharmacist() || 
-        isAdmin()
-      );
-      allow create, update: if isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow read: if isSignedIn() && (request.auth.uid == userId || isStaff());
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
     }
 
-    // Appointments
     match /appointments/{appointmentId} {
-      allow get: if isValidId(appointmentId) && (
-        existing().doctorId == request.auth.uid || 
-        existing().patientId == request.auth.uid || 
-        isAdmin()
-      );
-      allow list: if isSignedIn() && (
-        resource.data.doctorId == request.auth.uid || 
-        resource.data.patientId == request.auth.uid || 
-        isAdmin()
-      );
-      
-      allow create: if isValidId(appointmentId) && (
-        (isActiveDoctor() && incoming().doctorId == request.auth.uid) || 
-        (incoming().patientId == request.auth.uid)
-      );
-      
-      allow update: if isValidId(appointmentId) && (
-        existing().doctorId == request.auth.uid || 
-        existing().patientId == request.auth.uid || 
-        isAdmin()
-      );
-    }
-
-    // Prescriptions
-    match /prescriptions/{prescriptionId} {
       allow read: if isSignedIn() && (
-        resource.data.patientId == request.auth.uid || 
         resource.data.doctorId == request.auth.uid || 
-        isActivePharmacist() || 
+        resource.data.patientId == request.auth.uid || 
         isAdmin()
       );
-      
-      allow create: if isValidId(prescriptionId) && isActiveDoctor() && 
-                    incoming().doctorId == request.auth.uid;
-      
-      allow update: if isValidId(prescriptionId) && (
-        (isActivePharmacist() && incoming().diff(existing()).affectedKeys().hasAny(['status', 'pharmacyId', 'pharmacyName'])) ||
-        (isActiveDoctor() && existing().doctorId == request.auth.uid) ||
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (
+        resource.data.doctorId == request.auth.uid || 
+        resource.data.patientId == request.auth.uid || 
         isAdmin()
       );
     }
 
-    // ===============================================================
-    // UTILITY COLLECTIONS
-    // ===============================================================
-    match /consultations/{consultationId} {
-       allow read, write: if isSignedIn(); 
+    match /prescriptions/{prescriptionId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); // Explicitly allowed for pharmacists fetching arrays
+      allow create: if isSignedIn() && isStaff();
+      allow update: if isSignedIn() && (isAdmin() || isStaff());
+    }
+
+    match /inventory/{inventoryId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (isAdmin() || isStaff());
     }
 
     match /clinicalNotes/{noteId} {
-      allow get: if isValidId(noteId) && (
-        resource.data.patientId == request.auth.uid || 
-        isActiveDoctor() || 
-        isAdmin()
-      );
-      allow list: if isSignedIn() && (
-        resource.data.patientId == request.auth.uid || 
-        isActiveDoctor() || 
-        isAdmin()
-      );
-      allow create: if isValidId(noteId) && isActiveDoctor() && 
-                    incoming().doctorId == request.auth.uid;
-      allow update, delete: if isValidId(noteId) && (
-        (isActiveDoctor() && existing().doctorId == request.auth.uid) ||
-        isAdmin()
-      );
+      allow read: if isSignedIn() && (isAdmin() || isStaff() || resource.data.patientId == request.auth.uid);
+      allow create: if isSignedIn() && isStaff();
+      allow update, delete: if isSignedIn() && (isAdmin() || isStaff());
     }
 
     match /examResults/{resultId} {
-      allow get: if isValidId(resultId) && (
-        resource.data.patientId == request.auth.uid || 
-        isActiveDoctor() || 
-        isAdmin()
-      );
-      allow list: if isSignedIn() && (
-        resource.data.patientId == request.auth.uid || 
-        isActiveDoctor() || 
-        isAdmin()
-      );
-      allow create: if isValidId(resultId) && isActiveDoctor();
-      allow update, delete: if isValidId(resultId) && (isActiveDoctor() || isAdmin());
+      allow read: if isSignedIn() && (isAdmin() || isStaff() || resource.data.patientId == request.auth.uid);
+      allow create: if isSignedIn() && isStaff();
+      allow update, delete: if isSignedIn() && (isAdmin() || isStaff());
+    }
+
+    match /consultations/{consultationId} {
+      allow read, write: if isSignedIn();
     }
 
     match /chatRooms/{roomId} {
@@ -224,12 +151,12 @@ service cloud.firestore {
       }
     }
 
-    // Inventory
-    match /inventory/{inventoryId} {
-      allow read: if isSignedIn();
-      allow create: if isValidId(inventoryId) && (isActivePharmacist() || isAdmin());
-      allow update: if isValidId(inventoryId) && (isActivePharmacist() || isAdmin());
-      allow delete: if isValidId(inventoryId) && (isActivePharmacist() || isAdmin());
+    match /emergency_calls/{callId} {
+      allow read: if isSignedIn(); // Allow all signed in users to read (safety first)
+      allow create: if isSignedIn() && 
+        incoming().patientId == request.auth.uid &&
+        incoming().status == 'active';
+      allow update: if isSignedIn();
     }
   }
 }

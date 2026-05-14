@@ -16,6 +16,7 @@ import SafetyEngine from './pages/SafetyEngine';
 import EmergencyHub from './pages/EmergencyHub';
 import PharmacyLocator from './pages/PharmacyLocator';
 import PediatricCalculator from './pages/PediatricCalculator';
+import Appointments from './pages/Appointments';
 import PatientRecord from './pages/Doctor/PatientRecord';
 import PharmacistInventory from './pages/Pharmacist/Inventory';
 import { Users, Calendar, Pill, Search, Plus, ArrowRight, Clock, FilePlus, AlertCircle, Settings } from 'lucide-react';
@@ -350,6 +351,14 @@ export default function App() {
               element={
                 <PrivateRoute allowedRoles={['patient', 'doctor', 'pharmacist']}>
                   <PediatricCalculator />
+                </PrivateRoute>
+              } 
+            />
+            <Route 
+              path="/appointments" 
+              element={
+                <PrivateRoute allowedRoles={['patient']}>
+                  <Appointments />
                 </PrivateRoute>
               } 
             />

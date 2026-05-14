@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Users, Calendar, FileText, Video, Stethoscope, Search, User, Filter, ArrowRight, CheckCircle2, Plus, Loader2, List, ChevronLeft, ChevronRight, ShieldCheck, Settings } from 'lucide-react';
+import { Users, Calendar, FileText, Video, Stethoscope, Search, User, Filter, ArrowRight, CheckCircle2, Plus, Loader2, List, ChevronLeft, ChevronRight, ShieldCheck, Settings, AlertTriangle, Phone } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import NewPrescriptionModal from '../modals/NewPrescriptionModal';
 import ScheduleModal from '../modals/ScheduleModal';
+import { AnimatePresence, motion } from 'motion/react';
 
 export default function DoctorDashboard() {
   const { userProfile } = useAuth();
@@ -51,6 +52,45 @@ export default function DoctorDashboard() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [emergencyCalls, setEmergencyCalls] = useState<any[]>([]);
+
+  // Emergency Calls Monitor
+  useEffect(() => {
+    if (!userProfile?.uid || userProfile.role !== 'doctor') {
+      console.log("DEBUG: SOS Monitor skipping - user not doctor or not loaded", userProfile?.role);
+      return;
+    }
+
+    console.log("DEBUG: SOS Monitor starting for doctor", userProfile.uid);
+    // Remove orderBy to avoid index requirement for now
+    const eq = query(
+      collection(db, 'emergency_calls'),
+      where('status', '==', 'active')
+    );
+
+    const unsubscribe = onSnapshot(eq, (snapshot) => {
+      const calls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log("DEBUG: SOS Signal Received! Calls count:", calls.length);
+      setEmergencyCalls(calls);
+    }, (err) => {
+      console.error("DEBUG: SOS Monitor Error:", err);
+    });
+
+    return () => unsubscribe();
+  }, [userProfile?.uid, userProfile?.role]);
+
+  const joinEmergency = async (callId: string, roomId: string) => {
+    try {
+      await updateDoc(doc(db, 'emergency_calls', callId), {
+        status: 'joined',
+        doctorId: userProfile?.uid,
+        doctorName: userProfile?.displayName
+      });
+      navigate(`/consultation/${roomId}`);
+    } catch (error) {
+      console.error("Error joining emergency:", error);
+    }
+  };
 
   // Search Debounce Logic
   useEffect(() => {
@@ -120,7 +160,59 @@ export default function DoctorDashboard() {
   }, [debouncedSearchTerm, userProfile?.uid]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 auto-rows-[minmax(180px,auto)]">
+    <div className="flex flex-col gap-8">
+      {/* Emergency SOS Monitor - High Visibility */}
+      <AnimatePresence>
+        {emergencyCalls.length > 0 && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+            animate={{ height: 'auto', opacity: 1, marginBottom: 32 }}
+            exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-rose-600 rounded-[2.5rem] p-8 shadow-2xl shadow-rose-500/30 border border-rose-400 relative overflow-hidden">
+               <div className="absolute inset-0 bg-rose-500 animate-pulse opacity-10"></div>
+               <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                 <div className="flex items-center gap-6">
+                   <div className="w-20 h-20 bg-white text-rose-600 rounded-3xl flex items-center justify-center animate-bounce shadow-xl">
+                      <AlertTriangle size={40} fill="currentColor" />
+                   </div>
+                   <div>
+                     <div className="flex items-center gap-3 mb-2">
+                        <span className="px-3 py-1 bg-white/20 rounded-full text-[10px] font-black uppercase tracking-[0.3em] text-white animate-pulse">Lethal Priority</span>
+                        <span className="text-rose-100 font-mono text-sm font-bold">Active Signal Detected</span>
+                     </div>
+                     <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Emergency Intervention Required</h2>
+                     <p className="text-rose-100 mt-2 font-medium">Patients in critical status are requesting immediate video consultation.</p>
+                   </div>
+                 </div>
+
+                 <div className="flex flex-col gap-3 w-full md:w-auto">
+                   {emergencyCalls.map(call => (
+                     <div key={call.id} className="bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-2xl flex items-center justify-between gap-8 group/call">
+                        <div className="flex items-center gap-4">
+                           <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-white font-black">{call.patientName?.charAt(0)}</div>
+                           <div>
+                             <p className="text-white font-black uppercase tracking-tight">{call.patientName}</p>
+                             <p className="text-rose-100/60 text-[10px] font-bold uppercase tracking-widest">Request Pending</p>
+                           </div>
+                        </div>
+                        <button 
+                          onClick={() => joinEmergency(call.id, call.roomId)}
+                          className="bg-white text-rose-600 px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                        >
+                          <Phone size={14} fill="currentColor" /> Intercept Call
+                        </button>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 auto-rows-[minmax(180px,auto)]">
       
       {/* 360 Patient View & E-Prescribing (Col span 8) - THE LEAD BENTO CARD */}
       <div className="lg:col-span-8 bg-indigo-600 shadow-2xl shadow-indigo-900/20 rounded-[2.5rem] p-10 flex flex-col relative overflow-hidden group">
@@ -385,6 +477,17 @@ export default function DoctorDashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
+                        {urgent && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/consultation/${apt.id}`);
+                            }}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-600/20 active:scale-95 transition-all flex items-center gap-2"
+                          >
+                            <Video size={14} /> Join Session
+                          </button>
+                        )}
                         {urgent && (
                           <div className="hidden sm:flex px-2 py-1 bg-rose-500 text-white rounded-lg text-[7px] font-black uppercase tracking-widest">
                             High Priority
@@ -682,6 +785,7 @@ export default function DoctorDashboard() {
         isOpen={isScheduleModalOpen}
         onClose={() => setIsScheduleModalOpen(false)}
       />
+      </div>
     </div>
   );
 }

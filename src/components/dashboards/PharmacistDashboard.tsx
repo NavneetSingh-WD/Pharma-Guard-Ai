@@ -3,7 +3,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Store, Package, RefreshCw, AlertTriangle, FileText, Search, CheckCircle2, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { collection, query, where, getDocs, updateDoc, doc, limit, orderBy } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db, auth } from '../../firebase';
 import GenericSubModal from '../modals/GenericSubModal';
 
 export default function PharmacistDashboard() {
@@ -14,34 +14,42 @@ export default function PharmacistDashboard() {
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
 
   useEffect(() => {
+    if (!auth.currentUser) return;
+    
     async function fetchData() {
+      console.log("DEBUG: fetchData starting", {
+        uid: auth.currentUser?.uid,
+        email: auth.currentUser?.email,
+        dbId: db['_databaseId']?.['database'] || 'default'
+      });
       try {
+        setLoading(true);
         // Fetch pending prescriptions
         const qPx = query(
           collection(db, 'prescriptions'), 
           where('status', '==', 'pending'),
-          orderBy('createdAt', 'desc'),
-          limit(10)
+          limit(20)
         );
+        
         const snapPx = await getDocs(qPx);
         setPrescriptions(snapPx.docs.map(d => ({ id: d.id, ...d.data() })));
 
         // Fetch inventory for FEFO alerts
         const qInv = query(
           collection(db, 'inventory'),
-          orderBy('expiryDate', 'asc'),
-          limit(5)
+          limit(10)
         );
+        
         const snapInv = await getDocs(qInv);
         setInventory(snapInv.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) {
-        console.error("Error fetching pharmacist data:", e);
+        console.error("General error in pharmacist data fetch:", e);
       } finally {
         setLoading(false);
       }
     }
     fetchData();
-  }, []);
+  }, [auth.currentUser]);
 
   const getDaysLeft = (expiryDate: string) => {
     const today = new Date();
