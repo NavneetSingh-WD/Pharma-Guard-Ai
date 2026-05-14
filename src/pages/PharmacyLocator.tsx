@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, MapPin, Search, Pill, Store, Navigation, DollarSign, Calendar, Loader2, RefreshCw } from 'lucide-react';
+import Layout from '../components/Layout';
 import { APIProvider, Map, AdvancedMarker, Pin, useMap, useMapsLibrary } from '@vis.gl/react-google-maps';
 
 const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
@@ -12,6 +13,7 @@ interface PharmacyResult {
   distance: string;
   address: string;
   isOpen: boolean;
+  currency?: string;
   location?: { lat: number; lng: number };
   stock: {
     type: 'Brand' | 'Generic';
@@ -60,7 +62,30 @@ export default function PharmacyLocator() {
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<PharmacyResult[] | null>(null);
   const [selectedPharmacy, setSelectedPharmacy] = useState<PharmacyResult | null>(null);
-  const [mapCenter, setMapCenter] = useState({ lat: 37.7749, lng: -122.4194 });
+  const [mapCenter, setMapCenter] = useState({ lat: 28.6139, lng: 77.2090 }); // Default to New Delhi as requested demo area
+  const [isLocating, setIsLocating] = useState(false);
+
+  useEffect(() => {
+    // Attempt to locate user on mount
+    locateUser();
+  }, []);
+
+  const locateUser = () => {
+    if (!navigator.geolocation) return;
+    
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setMapCenter({ lat: latitude, lng: longitude });
+        setIsLocating(false);
+      },
+      (error) => {
+        console.error("Geolocation error:", error);
+        setIsLocating(false);
+      }
+    );
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,16 +95,16 @@ export default function PharmacyLocator() {
     setResults(null);
     
     try {
-      const response = await fetch(`/api/pharmacies?query=${encodeURIComponent(searchQuery)}`);
+      const response = await fetch(`/api/pharmacies?query=${encodeURIComponent(searchQuery)}&lat=${mapCenter.lat}&lng=${mapCenter.lng}`);
       if (!response.ok) throw new Error('Failed to fetch pharmacies');
       const data = await response.json();
       
-      // Inject random-ish locations for demo if not present
+      // Inject locations relative to the map center (user location)
       const resultsWithLocation = data.results.map((p: any, i: number) => ({
         ...p,
         location: p.location || { 
-          lat: 37.7749 + (Math.random() - 0.5) * 0.05, 
-          lng: -122.4194 + (Math.random() - 0.5) * 0.05 
+          lat: mapCenter.lat + (Math.random() - 0.5) * 0.02, 
+          lng: mapCenter.lng + (Math.random() - 0.5) * 0.02 
         }
       }));
       
@@ -129,12 +154,10 @@ export default function PharmacyLocator() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
-      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-amber-300/20 rounded-full blur-3xl pointer-events-none"></div>
-      
+    <Layout>
       <div className="max-w-6xl mx-auto relative z-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-medium">
-          <ArrowLeft size={20} /> Back to Dashboard
+        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-black uppercase text-[10px] tracking-widest">
+          <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
         <div className="text-center mb-10">
@@ -176,7 +199,8 @@ export default function PharmacyLocator() {
               <div className="absolute inset-0 z-10 pointer-events-none border-[12px] border-white/10 rounded-[2.5rem]"></div>
               <APIProvider apiKey={API_KEY} version="weekly">
                 <Map
-                  defaultCenter={mapCenter}
+                  center={mapCenter}
+                  onCenterChanged={(ev) => setMapCenter(ev.detail.center)}
                   defaultZoom={13}
                   mapId="PHARMA_GUARD_LOCATOR"
                   internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
@@ -199,9 +223,18 @@ export default function PharmacyLocator() {
               <div className="absolute bottom-8 left-8 right-8 bg-slate-900/80 backdrop-blur-xl p-4 rounded-2xl border border-white/10 shadow-2xl flex items-center justify-between z-20">
                 <div className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-pulse"></div>
-                  <span className="text-[10px] font-black text-white uppercase tracking-widest">Network Signal: Strong</span>
+                  <span className="text-[10px] font-black text-white uppercase tracking-widest">
+                    GPS: {mapCenter.lat.toFixed(4)}, {mapCenter.lng.toFixed(4)}
+                  </span>
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Live UHI Inventory Stream</p>
+                <button 
+                  onClick={locateUser}
+                  disabled={isLocating}
+                  className="flex items-center gap-2 text-[10px] text-white font-black bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-all border border-white/20"
+                >
+                  {isLocating ? <Loader2 size={12} className="animate-spin" /> : <Navigation size={12} />}
+                  Recenter Signal
+                </button>
               </div>
             </div>
           </div>
@@ -306,7 +339,7 @@ export default function PharmacyLocator() {
                               {item.inStock ? (
                                 <>
                                   <div className="flex items-start">
-                                    <span className="text-xs font-black text-slate-400 mt-1 leading-none">$</span>
+                                    <span className="text-xs font-black text-slate-400 mt-1 leading-none">{pharmacy.currency || '$'}</span>
                                     <p className="text-2xl font-black text-slate-800 tracking-tighter leading-none">
                                       {item.price.toFixed(2)}
                                     </p>
@@ -335,6 +368,6 @@ export default function PharmacyLocator() {
 
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

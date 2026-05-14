@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { X, RefreshCw, Search, ArrowRight, DollarSign, Pill } from 'lucide-react';
+import { db } from '../../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 interface GenericSubModalProps {
   isOpen: boolean;
@@ -7,25 +9,67 @@ interface GenericSubModalProps {
 }
 
 export default function GenericSubModal({ isOpen, onClose }: GenericSubModalProps) {
-  const [query, setQuery] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const mockDB: Record<string, any> = {
-    'lipitor': { generic: 'Atorvastatin', brandPrice: 45, genericPrice: 8, composition: 'Atorvastatin Calcium', savings: '82%' },
-    'amoxil': { generic: 'Amoxicillin', brandPrice: 22, genericPrice: 5, composition: 'Amoxicillin Trihydrate', savings: '77%' },
-    'glucophage': { generic: 'Metformin', brandPrice: 18, genericPrice: 4, composition: 'Metformin Hydrochloride', savings: '78%' },
-    'zoloft': { generic: 'Sertraline', brandPrice: 55, genericPrice: 12, composition: 'Sertraline HCl', savings: '78%' },
-    'advil': { generic: 'Ibuprofen', brandPrice: 12, genericPrice: 3, composition: 'Ibuprofen', savings: '75%' },
-  };
-
-  const handleSearch = () => {
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) return;
     setLoading(true);
-    setTimeout(() => {
-      const match = mockDB[query.toLowerCase()];
-      setResult(match || 'not_found');
+    setResult(null);
+    
+    try {
+      // 1. First search for the brand name to find its generic
+      // In a real app, you'd use a clinical API like RxNorm here.
+      // For this demo, we'll simulate the "MTM Knowledge Base"
+      const clinicalMapping: Record<string, string> = {
+        'lipitor': 'Atorvastatin',
+        'amoxil': 'Amoxicillin',
+        'glucophage': 'Metformin',
+        'zoloft': 'Sertraline',
+        'advil': 'Ibuprofen',
+        'panadol': 'Paracetamol',
+        'tylenol': 'Paracetamol'
+      };
+
+      const genericName = clinicalMapping[searchTerm.toLowerCase()];
+      
+      if (!genericName) {
+        setResult('not_found');
+        return;
+      }
+
+      // 2. Query our inventory for medications with this generic name
+      const q = query(collection(db, 'inventory'), where('genericName', '==', genericName));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        setResult({
+          generic: genericName,
+          brandPrice: 45, // Simulation
+          genericPrice: 'N/A',
+          inInventory: false,
+          composition: `${genericName} Active Ingredient`,
+          savings: '70%+'
+        });
+      } else {
+        const item = snap.docs[0].data();
+        setResult({
+          generic: genericName,
+          brandPrice: (item.price * 3.5).toFixed(2), // Brand is usually 3-4x more
+          genericPrice: item.price.toFixed(2),
+          inInventory: true,
+          composition: `${genericName} USP (Batch: ${item.batchNumber})`,
+          savings: '72%',
+          stock: item.stock
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setResult('not_found');
+    } finally {
       setLoading(false);
-    }, 600);
+    }
   };
 
   if (!isOpen) return null;
@@ -54,8 +98,8 @@ export default function GenericSubModal({ isOpen, onClose }: GenericSubModalProp
               type="text" 
               placeholder="Enter brand name (e.g. Lipitor, Advil)..." 
               className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-amber-500 transition-all outline-none"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             />
             <button 
@@ -71,14 +115,14 @@ export default function GenericSubModal({ isOpen, onClose }: GenericSubModalProp
               <div className="animate-spin h-8 w-8 border-t-2 border-amber-500 rounded-full"></div>
             ) : result === 'not_found' ? (
               <div className="text-center p-6">
-                <p className="text-slate-400 text-sm">No generic alternative found for "{query}" in our local database.</p>
+                <p className="text-slate-400 text-sm">No generic alternative found for "{searchTerm}" in our clinical database.</p>
               </div>
             ) : result ? (
               <div className="w-full p-6 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-center flex-1">
                     <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Brand Name</p>
-                    <p className="text-lg font-bold text-slate-800 capitalize">{query}</p>
+                    <p className="text-lg font-bold text-slate-800 capitalize">{searchTerm}</p>
                     <p className="text-rose-500 font-bold">${result.brandPrice}</p>
                   </div>
                   <div className="flex flex-col items-center">
@@ -95,15 +139,29 @@ export default function GenericSubModal({ isOpen, onClose }: GenericSubModalProp
                 </div>
 
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Pill size={14} className="text-slate-400" />
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Active Composition</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Pill size={14} className="text-slate-400" />
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Active Composition</p>
+                    </div>
+                    {result.inInventory ? (
+                      <span className="text-[8px] font-black bg-teal-100 text-teal-700 px-2 py-0.5 rounded leading-none">IN STOCK ({result.stock})</span>
+                    ) : (
+                      <span className="text-[8px] font-black bg-rose-100 text-rose-700 px-2 py-0.5 rounded leading-none">OUT OF STOCK</span>
+                    )}
                   </div>
                   <p className="text-sm font-medium text-slate-700">{result.composition}</p>
                 </div>
 
-                <button className="w-full bg-slate-900 text-white font-bold py-3 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
-                  <DollarSign size={18} /> Update Order with Generic
+                <button 
+                  disabled={!result.inInventory}
+                  className={`w-full font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition-all ${
+                    result.inInventory 
+                    ? 'bg-slate-900 text-white hover:bg-slate-800' 
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  <DollarSign size={18} /> {result.inInventory ? 'Apply Generic Substitution' : 'Inventory Unavailable'}
                 </button>
               </div>
             ) : (

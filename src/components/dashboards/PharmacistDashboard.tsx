@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Store, Package, RefreshCw, AlertTriangle, FileText, Search, CheckCircle2 } from 'lucide-react';
+import { Store, Package, RefreshCw, AlertTriangle, FileText, Search, CheckCircle2, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { collection, query, where, getDocs, updateDoc, doc, limit, orderBy } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -9,28 +9,46 @@ import GenericSubModal from '../modals/GenericSubModal';
 export default function PharmacistDashboard() {
   const { userProfile } = useAuth();
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
 
   useEffect(() => {
-    async function fetchPrescriptions() {
+    async function fetchData() {
       try {
-        const q = query(
+        // Fetch pending prescriptions
+        const qPx = query(
           collection(db, 'prescriptions'), 
           where('status', '==', 'pending'),
           orderBy('createdAt', 'desc'),
           limit(10)
         );
-        const snap = await getDocs(q);
-        setPrescriptions(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const snapPx = await getDocs(qPx);
+        setPrescriptions(snapPx.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // Fetch inventory for FEFO alerts
+        const qInv = query(
+          collection(db, 'inventory'),
+          orderBy('expiryDate', 'asc'),
+          limit(5)
+        );
+        const snapInv = await getDocs(qInv);
+        setInventory(snapInv.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) {
-        console.error("Error fetching prescriptions:", e);
+        console.error("Error fetching pharmacist data:", e);
       } finally {
         setLoading(false);
       }
     }
-    fetchPrescriptions();
+    fetchData();
   }, []);
+
+  const getDaysLeft = (expiryDate: string) => {
+    const today = new Date();
+    const expiry = new Date(expiryDate);
+    const diffTime = expiry.getTime() - today.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
 
   const fulfillPrescription = async (id: string) => {
     try {
@@ -107,6 +125,10 @@ export default function PharmacistDashboard() {
         <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none mb-1">{userProfile?.displayName || 'Chief Pharmacist'}</h3>
         <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mb-8">Clinical MTM Specialist • Terminal #92</p>
         
+        <Link to="/onboarding" className="mb-8 w-full bg-slate-50 text-slate-600 font-bold py-3 rounded-2xl border border-slate-100 hover:bg-white transition-all text-center block text-[10px] uppercase tracking-widest flex items-center justify-center gap-2">
+          <Settings size={14} /> Update Credentials
+        </Link>
+
         <div className="w-full grid grid-cols-2 gap-4">
           <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-100 group/stat">
             <p className="text-2xl font-black text-amber-600 leading-none mb-1 group-hover/stat:scale-110 transition-transform">45</p>
@@ -137,37 +159,50 @@ export default function PharmacistDashboard() {
           </span>
         </div>
         
-        <div className="space-y-4 mb-8">
-          <div className="p-5 bg-rose-50/50 border border-rose-100 rounded-2xl flex flex-col gap-3 group/alert hover:bg-rose-50 transition-colors">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="font-bold text-slate-800 uppercase tracking-tight">Amoxicillin 500mg</p>
-                <p className="text-[10px] text-slate-500 font-bold">BATCH: AMX-992-B</p>
-              </div>
-              <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">15 Days Left</span>
+        <div className="space-y-4 mb-8 overflow-y-auto max-h-[280px] pr-2 custom-scrollbar">
+          {inventory.length > 0 ? (
+            inventory.map((item) => {
+              const daysLeft = getDaysLeft(item.expiryDate);
+              const progress = Math.max(0, Math.min(100, (daysLeft / 180) * 100)); // normalized against 6 months
+              
+              return (
+                <div key={item.id} className={`p-5 border rounded-2xl flex flex-col gap-3 group/alert transition-colors ${
+                  daysLeft <= 30 ? 'bg-rose-50/50 border-rose-100 hover:bg-rose-50' : 'bg-amber-50/50 border-amber-100 hover:bg-amber-50'
+                }`}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-slate-800 uppercase tracking-tight">{item.name}</p>
+                      <p className="text-[10px] text-slate-500 font-bold uppercase">BATCH: {item.batchNumber}</p>
+                    </div>
+                    <span className={`text-[10px] font-black uppercase tracking-widest ${
+                      daysLeft <= 30 ? 'text-rose-600' : 'text-amber-600'
+                    }`}>
+                      {daysLeft < 0 ? 'Expired' : `${daysLeft} Days Left`}
+                    </span>
+                  </div>
+                  <div className="w-full h-1 bg-slate-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-500 ${daysLeft <= 30 ? 'bg-rose-600' : 'bg-amber-600'}`} 
+                      style={{ width: `${100 - progress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="py-10 text-center">
+               <Package size={32} className="mx-auto text-slate-200 mb-2" />
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inventory Secure</p>
             </div>
-            <div className="w-full h-1 bg-rose-200 rounded-full overflow-hidden">
-               <div className="h-full bg-rose-600 w-[10%]"></div>
-            </div>
-          </div>
-          
-          <div className="p-5 bg-amber-50/50 border border-amber-100 rounded-2xl flex flex-col gap-3 group/alert hover:bg-amber-50 transition-colors">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="font-bold text-slate-800 uppercase tracking-tight">Lisinopril 10mg</p>
-                <p className="text-[10px] text-slate-500 font-bold">BATCH: LIS-401-K</p>
-              </div>
-              <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">45 Days Left</span>
-            </div>
-            <div className="w-full h-1 bg-amber-200 rounded-full overflow-hidden">
-               <div className="h-full bg-amber-600 w-[40%]"></div>
-            </div>
-          </div>
+          )}
         </div>
 
-        <button className="mt-auto w-full bg-slate-900 text-white font-black py-4 rounded-2xl shadow-xl shadow-slate-900/20 transition-all hover:scale-[1.02] active:scale-[0.98] text-center text-sm uppercase tracking-widest">
-          Audit Inventory
-        </button>
+        <Link 
+          to="/inventory"
+          className="mt-auto w-full bg-slate-900 text-white font-black py-4 rounded-2xl shadow-xl shadow-slate-900/20 transition-all hover:scale-[1.02] active:scale-[0.98] text-center text-sm uppercase tracking-widest flex items-center justify-center gap-2"
+        >
+          <Search size={18} /> Audit Inventory
+        </Link>
       </div>
 
       {/* E-Prescriptions Hub (Col span 7) */}

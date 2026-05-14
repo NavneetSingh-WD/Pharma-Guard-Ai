@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { User, Activity, AlertTriangle, Pill, Stethoscope, Store } from 'lucide-react';
+import { User, Activity, AlertTriangle, Pill, Stethoscope, Store, MapPin } from 'lucide-react';
 
 export default function Onboarding() {
   const { userProfile, patientData, updatePatientData, updateUserProfile, updateProfessionalData } = useAuth();
@@ -12,6 +12,8 @@ export default function Onboarding() {
   );
   
   const [formData, setFormData] = useState({
+    displayName: userProfile?.displayName || '',
+    dob: patientData?.dob || '',
     age: patientData?.age || '',
     weightKg: patientData?.weightKg || '',
     gender: patientData?.gender || 'Prefer not to say',
@@ -37,11 +39,17 @@ export default function Onboarding() {
     setLoading(true);
     
     try {
+      // Always update display name if changed
+      if (formData.displayName !== userProfile?.displayName) {
+        await updateUserProfile({ displayName: formData.displayName });
+      }
+
       if (selectedRole === 'patient') {
         if (userProfile?.role === 'unassigned') {
           await updateUserProfile({ role: 'patient', status: 'active' });
         }
         await updatePatientData({
+          dob: formData.dob,
           age: Number(formData.age),
           weightKg: Number(formData.weightKg),
           gender: formData.gender,
@@ -50,8 +58,10 @@ export default function Onboarding() {
           currentMedications: formData.currentMedications.split(',').map(s => s.trim()).filter(Boolean),
         });
       } else if (selectedRole === 'doctor' || selectedRole === 'pharmacist') {
-        // Professional registration sets status to pending
-        await updateUserProfile({ role: selectedRole, status: 'pending' });
+        // Only set status to pending if they aren't already active (first time registration)
+        const newStatus = userProfile?.status === 'active' ? 'active' : 'pending';
+        
+        await updateUserProfile({ role: selectedRole, status: newStatus });
         await updateProfessionalData(selectedRole, {
           licenseNumber: formData.licenseNumber,
           verificationDocUrl: formData.verificationDocUrl || 'https://demo-id-card-url.com/id.jpg',
@@ -69,10 +79,9 @@ export default function Onboarding() {
   };
 
   useEffect(() => {
-    if (userProfile?.role && userProfile.role !== 'unassigned' && userProfile.role === 'admin') {
-      navigate('/');
-    }
-  }, [userProfile?.role, navigate]);
+    // Check if user has an active professional role to pre-fill verification data if needed
+    // But don't redirect away so they can edit
+  }, [userProfile?.role]);
 
   if (userProfile?.role === 'unassigned' && !selectedRole) {
     return (
@@ -147,9 +156,12 @@ export default function Onboarding() {
                   <User className="absolute left-5 top-1/2 -translate-y-1/2 text-indigo-500" size={20} />
                   <input 
                     type="text" 
-                    readOnly 
-                    value={userProfile?.displayName || ''} 
-                    className="w-full pl-14 pr-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50 text-sm font-bold text-slate-800 outline-none"
+                    name="displayName"
+                    required
+                    value={formData.displayName} 
+                    onChange={handleChange}
+                    className="w-full pl-14 pr-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-indigo-500/20 transition-all text-sm font-bold text-slate-800 outline-none"
+                    placeholder="Enter your full clinical name"
                   />
                 </div>
               </div>
@@ -205,6 +217,22 @@ export default function Onboarding() {
               )}
 
               <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Practice Address</label>
+                <div className="relative group">
+                  <MapPin className="absolute left-5 top-1/2 -translate-y-1/2 text-indigo-500" size={20} />
+                  <input 
+                    type="text" 
+                    name="address" 
+                    required 
+                    value={formData.address} 
+                    onChange={handleChange}
+                    className="w-full pl-14 pr-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-indigo-500/20 transition-all text-sm font-bold text-slate-800 outline-none"
+                    placeholder="Physical location of clinic/pharmacy"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Upload ID / Medical License</label>
                 <div className="p-8 border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50 flex flex-col items-center justify-center text-center group cursor-pointer hover:border-indigo-400 hover:bg-white transition-all">
                   <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-4 group-hover:rotate-12 transition-transform">
@@ -233,7 +261,7 @@ export default function Onboarding() {
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-4">
               <AlertTriangle className="text-amber-500 shrink-0" size={20} />
               <p className="text-[10px] font-black text-amber-700 uppercase tracking-widest leading-relaxed">
-                By submitting, you consent to our automated and manual vetting process. Access will be granted after credential verification.
+                By submitting, you consent to our automated and manual vetting process. {userProfile?.status === 'active' ? 'Existing verification remains valid.' : 'Access will be granted after review.'}
               </p>
             </div>
 
@@ -242,7 +270,7 @@ export default function Onboarding() {
               disabled={loading || !formData.licenseNumber}
               className="w-full bg-slate-900 hover:bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-slate-900/20 transition-all active:scale-95 disabled:opacity-50 uppercase tracking-[0.2em] italic"
             >
-              {loading ? 'Submitting Application...' : 'Initialize Verification'}
+              {loading ? 'Processing...' : (userProfile?.status === 'active' ? 'Update Clinical Profile' : 'Initialize Verification')}
             </button>
           </form>
         </div>
@@ -260,7 +288,34 @@ export default function Onboarding() {
         />
 
         <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Full Patient Name</label>
+            <div className="relative group">
+              <User className="absolute left-5 top-1/2 -translate-y-1/2 text-teal-600" size={20} />
+              <input 
+                type="text" 
+                name="displayName"
+                required
+                value={formData.displayName} 
+                onChange={handleChange}
+                className="w-full pl-14 pr-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-sm font-bold text-slate-800 outline-none"
+                placeholder="Enter patient full name"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">DOB</label>
+              <input 
+                type="date" 
+                name="dob"
+                required
+                value={formData.dob} 
+                onChange={handleChange}
+                className="w-full px-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-xs font-bold text-slate-800 outline-none"
+              />
+            </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">Age</label>
               <input 
@@ -271,7 +326,7 @@ export default function Onboarding() {
                 max="150"
                 value={formData.age} 
                 onChange={handleChange}
-                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-sm font-bold text-slate-800 outline-none"
+                className="w-full px-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-xs font-bold text-slate-800 outline-none"
                 placeholder="Years"
               />
             </div>
@@ -286,7 +341,7 @@ export default function Onboarding() {
                 step="0.1"
                 value={formData.weightKg} 
                 onChange={handleChange}
-                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-sm font-bold text-slate-800 outline-none"
+                className="w-full px-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-xs font-bold text-slate-800 outline-none"
                 placeholder="kg"
               />
             </div>
@@ -296,7 +351,7 @@ export default function Onboarding() {
                 name="gender" 
                 value={formData.gender} 
                 onChange={handleChange}
-                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-sm font-bold text-slate-800 outline-none appearance-none"
+                className="w-full px-4 py-4 rounded-2xl border-2 border-slate-100 bg-slate-50/50 focus:bg-white focus:border-teal-500/20 transition-all text-xs font-bold text-slate-800 outline-none appearance-none"
               >
                 <option value="Male">Male</option>
                 <option value="Female">Female</option>

@@ -52,10 +52,14 @@ service cloud.firestore {
     // USERS COLLECTION (Global Registry)
     // ===============================================================
     match /users/{userId} {
-      allow get: if isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      // Logic for admin documents: only the user themselves OR another admin can access.
+      // Logic for other documents: owner, admin, or active staff (if patient).
+      allow get: if isValidId(userId) && (
+        request.auth.uid == userId || 
+        isAdmin() ||
+        (existing().get('role', 'unassigned') != 'admin' && (isActiveDoctor() || isActivePharmacist()))
+      );
       
-      // Admins can list anyone. 
-      // Doctors/Pharmacists can only list patients.
       allow list: if isSignedIn() && (
         isAdmin() || 
         ((isActiveDoctor() || isActivePharmacist()) && resource.data.get('role', 'unassigned') == 'patient')
@@ -64,23 +68,34 @@ service cloud.firestore {
       allow create: if isValidId(userId) && userId == request.auth.uid && (
         incoming().keys().hasAll(['uid', 'email', 'role', 'status', 'createdAt']) &&
         incoming().uid == request.auth.uid &&
-        incoming().role in ['patient', 'doctor', 'pharmacist', 'admin', 'unassigned'] &&
+        // Prevent self-promotion to admin during account creation
+        incoming().role in ['patient', 'doctor', 'pharmacist', 'unassigned'] &&
         incoming().status in ['active', 'pending', 'rejected']
       );
       
       allow update: if isValidId(userId) && (
-        // Admin can update status and role
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'role', 'updatedAt'])) ||
-        // User can update profile details but NOT status/role (unless starting as unassigned)
+        // Admins have full access to update roles/status
+        isAdmin() ||
+        // Users can update their own profile details but NOT status/role (unless starting as unassigned)
         (userId == request.auth.uid && (
-          (existing().role == 'unassigned' && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'displayName', 'photoURL', 'updatedAt', 'medical'])) ||
-          (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'medical']))
+          // If the profile being updated belongs to an admin, ONLY an admin can update it (handled by first branch above or this branch)
+          // But wait, the user themselves should be able to update their own displayName even if they are admin? 
+          // The prompt says "Ensure that only users with the 'admin' role can access or modify admin-specific data."
+          // If the userId's document has role == 'admin', only an admin can modify it.
+          (existing().role == 'admin' && isAdmin()) ||
+          (existing().role != 'admin' && (
+            (existing().role == 'unassigned' && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'status', 'displayName', 'photoURL', 'updatedAt', 'medical'])) ||
+            (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt', 'medical']))
+          ))
         ))
       );
 
       // Subcollections like reminders
       match /{allSubcollections=**} {
-        allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+        allow read, write: if isSignedIn() && (
+          (request.auth.uid == userId && (existing().role != 'admin' || isAdmin())) || 
+          isAdmin()
+        );
       }
     }
 
@@ -207,6 +222,14 @@ service cloud.firestore {
       match /{allSubcollections=**} {
         allow read, write: if isSignedIn();
       }
+    }
+
+    // Inventory
+    match /inventory/{inventoryId} {
+      allow read: if isSignedIn();
+      allow create: if isValidId(inventoryId) && (isActivePharmacist() || isAdmin());
+      allow update: if isValidId(inventoryId) && (isActivePharmacist() || isAdmin());
+      allow delete: if isValidId(inventoryId) && (isActivePharmacist() || isAdmin());
     }
   }
 }

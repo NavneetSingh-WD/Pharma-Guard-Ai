@@ -601,47 +601,53 @@ export default function ConsultationRoom() {
         </div>
 
         {/* Enhanced Controls Terminal */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-6 p-2 bg-slate-950/80 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-20 group/controls">
-          <div className="flex items-center gap-2 px-4 py-2 border-r border-white/5">
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-6 p-2 bg-slate-950/90 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] z-20 group/controls">
+          <div className="flex items-center gap-2 px-4 py-2 border-r border-white/10">
             <button 
               onClick={toggleMute}
-              className={`group relative w-14 h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-500 ${
+              className={`group relative w-16 h-16 rounded-[1.25rem] flex flex-col items-center justify-center transition-all duration-500 transform active:scale-90 ${
                 isMuted 
-                  ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.2)]' 
-                  : 'bg-white/5 text-white hover:bg-white/10 border border-white/5'
+                  ? 'bg-rose-500/30 text-rose-500 border border-rose-500/40 shadow-[0_0_30px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20' 
+                  : 'bg-white/10 text-white hover:bg-white/20 border border-white/10 shadow-lg'
               }`}
             >
-              {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-              <span className={`text-[8px] font-black uppercase tracking-[0.2em] mt-1 transition-colors ${isMuted ? 'text-rose-500' : 'text-white/40'}`}>
-                {isMuted ? 'Mute' : 'Mic'}
+              <div className="relative">
+                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+                {isMuted && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-rose-500 shadow-sm" />}
+              </div>
+              <span className={`text-[8px] font-black uppercase tracking-[0.2em] mt-1.5 transition-colors ${isMuted ? 'text-rose-500' : 'text-white/60'}`}>
+                {isMuted ? 'Muted' : 'Audio ON'}
               </span>
-              {isMuted && <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-slate-950 animate-pulse"></span>}
+              {isMuted && <span className="absolute inset-0 rounded-[1.25rem] bg-rose-500/5 animate-pulse"></span>}
             </button>
 
             <button 
               onClick={toggleVideo}
-              className={`group relative w-14 h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-500 ${
+              className={`group relative w-16 h-16 rounded-[1.25rem] flex flex-col items-center justify-center transition-all duration-500 transform active:scale-90 ${
                 isVideoOff 
-                  ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30 shadow-[0_0_20px_rgba(244,63,94,0.2)]' 
-                  : 'bg-white/5 text-white hover:bg-white/10 border border-white/5'
+                  ? 'bg-rose-500/30 text-rose-500 border border-rose-500/40 shadow-[0_0_30px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20' 
+                  : 'bg-white/10 text-white hover:bg-white/20 border border-white/10 shadow-lg'
               }`}
             >
-              {isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
-              <span className={`text-[8px] font-black uppercase tracking-[0.2em] mt-1 transition-colors ${isVideoOff ? 'text-rose-500' : 'text-white/40'}`}>
-                {isVideoOff ? 'Off' : 'Video'}
+              <div className="relative">
+                {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
+                {isVideoOff && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-rose-500 shadow-sm" />}
+              </div>
+              <span className={`text-[8px] font-black uppercase tracking-[0.2em] mt-1.5 transition-colors ${isVideoOff ? 'text-rose-500' : 'text-white/60'}`}>
+                {isVideoOff ? 'Cam OFF' : 'Vision ON'}
               </span>
-              {isVideoOff && <span className="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-slate-950 animate-pulse"></span>}
+              {isVideoOff && <span className="absolute inset-0 rounded-[1.25rem] bg-rose-500/5 animate-pulse"></span>}
             </button>
           </div>
 
           <button 
             onClick={() => setShowEndCallConfirm(true)}
-            className="group w-24 h-14 rounded-2xl flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/30 transition-all duration-300 relative overflow-hidden mr-2"
+            className="group w-32 h-16 rounded-[1.25rem] flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white shadow-2xl shadow-rose-600/30 transition-all duration-300 relative overflow-hidden mr-2 active:scale-95"
           >
-            <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+            <div className="absolute inset-0 bg-white/10 -translate-x-full group-hover:translate-x-0 transition-transform duration-500"></div>
             <div className="relative flex flex-col items-center">
-              <PhoneOff size={22} className="group-hover:rotate-12 transition-transform" />
-              <span className="text-[8px] font-black uppercase tracking-[0.2em] mt-1">Disconnect</span>
+              <PhoneOff size={24} className="group-hover:-rotate-12 transition-transform" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] mt-1">End Call</span>
             </div>
           </button>
         </div>

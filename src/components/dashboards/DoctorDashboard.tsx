@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Users, Calendar, FileText, Video, Stethoscope, Search, User, Filter, ArrowRight, CheckCircle2, Plus, Loader2, List, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { Users, Calendar, FileText, Video, Stethoscope, Search, User, Filter, ArrowRight, CheckCircle2, Plus, Loader2, List, ChevronLeft, ChevronRight, ShieldCheck, Settings } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, limit, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -182,8 +182,12 @@ export default function DoctorDashboard() {
           </div>
         </div>
         <h3 className="text-2xl font-black text-slate-800 tracking-tight leading-none mb-1">{userProfile?.displayName || 'Dr. Consultant'}</h3>
-        <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mb-8">Board Certified • Clinical Specialist</p>
+        <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px] mb-6">Board Certified • Clinical Specialist</p>
         
+        <Link to="/onboarding" className="mb-8 w-full bg-slate-50 text-slate-600 font-bold py-3 rounded-2xl border border-slate-100 hover:bg-white transition-all text-center block text-[10px] uppercase tracking-widest flex items-center justify-center gap-2">
+          <Settings size={14} /> Update Professional Profile
+        </Link>
+
         <div className="w-full grid grid-cols-2 gap-4">
           <div className="bg-slate-50/80 p-4 rounded-3xl border border-slate-100">
             <p className="text-2xl font-black text-indigo-600 leading-none mb-1">12</p>

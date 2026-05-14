@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, limit, orderBy } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { User, ShieldCheck, ShieldX, FileText, CheckCircle2, XCircle, Clock, ExternalLink } from 'lucide-react';
+import { User, ShieldCheck, ShieldX, FileText, CheckCircle2, XCircle, Clock, ExternalLink, Search, Users, ArrowRight, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface PendingUser {
   id: string;
@@ -14,12 +15,17 @@ interface PendingUser {
 }
 
 export default function AdminDashboard() {
+  const navigate = useNavigate();
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [patients, setPatients] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [patientsLoading, setPatientsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPendingUsers();
+    fetchPatients();
   }, []);
 
   const fetchPendingUsers = async () => {
@@ -50,6 +56,44 @@ export default function AdminDashboard() {
       console.error("Error fetching pending users:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPatients = async () => {
+    setPatientsLoading(true);
+    try {
+      const q = query(collection(db, 'users'), where('role', '==', 'patient'), limit(10));
+      const snap = await getDocs(q);
+      setPatients(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.error("Error fetching patients:", error);
+    } finally {
+      setPatientsLoading(false);
+    }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchTerm.trim()) {
+      fetchPatients();
+      return;
+    }
+    
+    setPatientsLoading(true);
+    try {
+      // Client-side filtering for simplicity in this demo, real apps would use a search index
+      const q = query(collection(db, 'users'), where('role', '==', 'patient'));
+      const snap = await getDocs(q);
+      const allPatients = snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      const filtered = allPatients.filter(p => 
+        p.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+      setPatients(filtered);
+    } catch (error) {
+      console.error("Error searching patients:", error);
+    } finally {
+      setPatientsLoading(false);
     }
   };
 
@@ -105,6 +149,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-8">
+        {/* Verification Queue Section */}
         <div className="bg-white/70 backdrop-blur-2xl border border-white/60 shadow-xl rounded-[2.5rem] p-10">
           <div className="flex items-center justify-between mb-10">
             <div className="flex items-center gap-4">
@@ -130,7 +175,7 @@ export default function AdminDashboard() {
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-center">
                     {/* User Identity */}
                     <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 overflow-hidden shadow-inner uppercase font-black italic">
+                      <div className="w-14 h-14 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 overflow-hidden shadow-inner uppercase font-black italic text-sm">
                         {user.displayName.slice(0, 2)}
                       </div>
                       <div>
@@ -194,6 +239,87 @@ export default function AdminDashboard() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Patient Directory Section */}
+        <div className="bg-white/70 backdrop-blur-2xl border border-white/60 shadow-xl rounded-[2.5rem] p-10">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-10">
+            <div className="flex items-center gap-4">
+               <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl">
+                 <Users size={24} />
+               </div>
+               <div>
+                 <h3 className="text-xl font-black text-slate-800 tracking-tighter uppercase italic">Patient Directory</h3>
+                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Global Medical Data Stream</p>
+               </div>
+            </div>
+
+            <form onSubmit={handleSearch} className="relative w-full md:w-96 group">
+              <input 
+                type="text" 
+                placeholder="Search patient identity..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-xs font-bold shadow-inner outline-none transition-all placeholder:text-slate-300"
+              />
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors">
+                <Search size={18} />
+              </div>
+              <button type="submit" className="hidden">Search</button>
+            </form>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Patient / Identity</th>
+                  <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Email Node</th>
+                  <th className="pb-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                  <th className="pb-4 text-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {patientsLoading ? (
+                  <tr>
+                    <td colSpan={4} className="py-20 text-center">
+                      <div className="animate-spin inline-block h-8 w-8 border-t-2 border-indigo-600 rounded-full"></div>
+                    </td>
+                  </tr>
+                ) : patients.length > 0 ? (
+                  patients.map((patient) => (
+                    <tr 
+                      key={patient.id} 
+                      className="group cursor-pointer border-b border-slate-50 hover:bg-slate-50 transition-colors"
+                      onClick={() => navigate(`/patient/${patient.id}`)}
+                    >
+                      <td className="py-5">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xs">
+                             {patient.displayName?.slice(0, 2).toUpperCase() || 'P'}
+                          </div>
+                          <span className="font-black text-slate-800 uppercase tracking-tight text-sm italic">{patient.displayName}</span>
+                        </div>
+                      </td>
+                      <td className="py-5 text-xs font-bold text-slate-400 uppercase tracking-tight">{patient.email}</td>
+                      <td className="py-5">
+                        <span className="px-3 py-1 bg-green-50 text-green-700 text-[9px] font-black rounded-lg uppercase tracking-widest border border-green-100">Active</span>
+                      </td>
+                      <td className="py-5 text-right">
+                        <div className="p-2 bg-slate-100 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white rounded-lg transition-all inline-block">
+                          <ArrowRight size={16} />
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="py-20 text-center text-slate-300 italic uppercase text-[10px] font-black tracking-widest">No patient nodes detected</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

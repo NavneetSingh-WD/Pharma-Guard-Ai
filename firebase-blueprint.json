@@ -84,10 +84,26 @@
             }
           }
         },
-        "status": { "type": "string", "enum": ["pending", "filled", "cancelled"] },
+        "status": { "type": "string", "enum": ["pending", "fulfilled", "cancelled"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["patientId", "doctorId", "medications", "status", "createdAt"]
+    },
+    "Inventory": {
+      "title": "Inventory",
+      "description": "Pharmacy stock and batch data.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "genericName": { "type": "string" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "expiryDate": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "price": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "genericName", "stock", "expiryDate", "batchNumber", "price"]
     },
     "Consultation": {
       "title": "Consultation",
@@ -166,6 +182,10 @@
     "/clinicalNotes/{noteId}": {
       "schema": { "$ref": "#/entities/ClinicalNote" },
       "description": "Stores structured clinical notes for patients."
+    },
+    "/inventory/{inventoryId}": {
+      "schema": { "$ref": "#/entities/Inventory" },
+      "description": "Stores pharmacy inventory items."
     }
   }
 }

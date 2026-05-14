@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import { Video, Users, ArrowRight, Stethoscope, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Layout from '../components/Layout';
 
 export default function Telemedicine() {
   const [joinId, setJoinId] = useState('');
@@ -36,14 +37,10 @@ export default function Telemedicine() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden flex flex-col items-center justify-center">
-      {/* Decorative background elements */}
-      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-300/20 rounded-full blur-3xl pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-teal-300/20 rounded-full blur-3xl pointer-events-none"></div>
-
-      <div className="w-full max-w-4xl relative z-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-medium">
-          <ArrowLeft size={20} /> Back to Dashboard
+    <Layout>
+      <div className="w-full relative z-10">
+        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-black uppercase text-[10px] tracking-widest">
+          <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
         <div className="text-center mb-12">
@@ -103,6 +100,6 @@ export default function Telemedicine() {
           </div>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

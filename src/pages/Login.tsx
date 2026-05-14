@@ -119,7 +119,7 @@ export default function Login() {
                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-2.5 group-hover:rotate-12 transition-transform">
                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" />
                </div>
-               <span className="text-sm uppercase tracking-[0.2em] italic">Enter Master Terminal</span>
+               <span className="text-sm uppercase tracking-[0.2em] italic">Secure System Access</span>
             </div>
             <ChevronRight size={24} className="group-hover:translate-x-1 transition-transform" />
           </button>

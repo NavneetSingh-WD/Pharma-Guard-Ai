@@ -4,6 +4,11 @@ import path from "path";
 import http from "http";
 import { Server } from "socket.io";
 
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+
 async function startServer() {
   const app = express();
   const server = http.createServer(app);
@@ -22,15 +27,58 @@ async function startServer() {
 
   // Mock API: Pharmacy Locator
   app.get("/api/pharmacies", (req, res) => {
-    const { query } = req.query;
+    const { query, lat, lng } = req.query;
+    const latitude = parseFloat(lat as string);
+    const longitude = parseFloat(lng as string);
+
+    // Dynamic region detection for mock data
+    const isIndia = latitude > 8 && latitude < 37 && longitude > 68 && longitude < 97;
+    
     // In a real app, this would query a pharmacy aggregator API
-    const MOCK_RESULTS = [
+    const MOCK_RESULTS = isIndia ? [
+      {
+        id: '1',
+        name: 'Apollo Pharmacy',
+        distance: '0.5 km',
+        address: 'MG Road, New Delhi, India',
+        isOpen: true,
+        currency: '₹',
+        stock: [
+          { type: 'Brand', name: 'Calpol 500', composition: 'Paracetamol 500mg', price: 15.50, expiryDate: '2027-05-01', inStock: true },
+          { type: 'Generic', name: 'Paracet 500', composition: 'Paracetamol 500mg', price: 9.00, expiryDate: '2026-11-15', inStock: true }
+        ]
+      },
+      {
+        id: '2',
+        name: 'Wellness Forever',
+        distance: '1.8 km',
+        address: 'Hauz Khas, New Delhi, India',
+        isOpen: true,
+        currency: '₹',
+        stock: [
+          { type: 'Brand', name: 'Dolo 650', composition: 'Paracetamol 650mg', price: 30.00, expiryDate: '2027-02-20', inStock: true },
+          { type: 'Generic', name: 'Acetaminophen 650', composition: 'Paracetamol 650mg', price: 12.00, expiryDate: '2028-01-10', inStock: true }
+        ]
+      },
+      {
+        id: '3',
+        name: 'MedPlus Pharmacy',
+        distance: '3.2 km',
+        address: 'Saket, New Delhi, India',
+        isOpen: false,
+        currency: '₹',
+        stock: [
+          { type: 'Generic', name: 'P-500 Oral Suspension', composition: 'Paracetamol 500mg/5ml', price: 25.00, expiryDate: '2026-08-30', inStock: true }
+        ]
+      }
+    ] : [
       {
         id: '1',
         name: 'City Health Pharmacy',
         distance: '0.8 miles',
         address: '123 Main St, San Francisco, CA',
         isOpen: true,
+        currency: '$',
         stock: [
           { type: 'Brand', name: 'Tylenol Extra Strength', composition: 'Paracetamol 500mg', price: 8.99, expiryDate: '2027-05-01', inStock: true },
           { type: 'Generic', name: 'Acetaminophen 500mg', composition: 'Paracetamol 500mg', price: 3.49, expiryDate: '2026-11-15', inStock: true }
@@ -42,19 +90,10 @@ async function startServer() {
         distance: '1.2 miles',
         address: '456 Market St, San Francisco, CA',
         isOpen: true,
+        currency: '$',
         stock: [
           { type: 'Brand', name: 'Tylenol Extra Strength', composition: 'Paracetamol 500mg', price: 9.49, expiryDate: '2027-02-20', inStock: false },
           { type: 'Generic', name: 'Acetaminophen 500mg', composition: 'Paracetamol 500mg', price: 4.99, expiryDate: '2028-01-10', inStock: true }
-        ]
-      },
-      {
-        id: '3',
-        name: 'Neighborhood Care Rx',
-        distance: '2.5 miles',
-        address: '789 Mission St, San Francisco, CA',
-        isOpen: false,
-        stock: [
-          { type: 'Generic', name: 'Acetaminophen 500mg', composition: 'Paracetamol 500mg', price: 2.99, expiryDate: '2026-08-30', inStock: true }
         ]
       }
     ];
@@ -65,11 +104,19 @@ async function startServer() {
   // Mock API: Emergency Dispatch
   app.post("/api/emergency/dispatch", (req, res) => {
     const { lat, lng, profile } = req.body;
+    const latitude = parseFloat(lat);
+    const longitude = parseFloat(lng);
+
+    const isIndia = latitude > 8 && latitude < 37 && longitude > 68 && longitude < 97;
+    const locStr = isIndia 
+      ? `${latitude.toFixed(4)}° N, ${longitude.toFixed(4)}° E (New Delhi, India)`
+      : `${latitude.toFixed(4)}° N, ${Math.abs(longitude).toFixed(4)}° W (Regional Command)`;
+
     // In a real app, this would integrate with an ambulance dispatch system
     res.json({ 
       success: true, 
-      eta: "8 Minutes", 
-      location: "37.7749° N, 122.4194° W (San Francisco, CA)",
+      eta: isIndia ? "12 Minutes" : "8 Minutes", 
+      location: locStr,
       dispatchId: `DSP-${Math.floor(Math.random() * 10000)}`
     });
   });
@@ -94,42 +141,45 @@ async function startServer() {
     res.json({ hospitals: MOCK_HOSPITALS });
   });
 
-  // --- NEW: DDI & Structured Overdose Safety Engine ---
-  app.post("/api/safety/evaluate", (req, res) => {
-    const { drug, amount, strength, timeframeHours } = req.body;
+  // --- NEW: DDI & Structured Overdose Safety Engine (AI Powered) ---
+  app.post("/api/safety/evaluate", async (req, res) => {
+    const { query, patientProfile } = req.body;
     
-    // Example logic based on the strict clinical format requested
-    const totalMg = amount * strength;
-    
-    let riskAssessment = "Dose within standard therapeutic limits.";
-    let immediateGuidance = "Continue as prescribed. Do not exceed daily limits.";
-    let redFlagTrigger = "If total intake exceeds maximum daily allowance or combined with contraindications.";
-    let escalationInstruction = "Seek medical evaluation if adverse symptoms develop.";
-
-    // Specific logic for Paracetamol/Acetaminophen
-    if (drug.toLowerCase().includes("paracetamol") || drug.toLowerCase().includes("acetaminophen")) {
-      if (totalMg >= 3000 && timeframeHours <= 4) {
-        riskAssessment = "Dose exceeds standard single-dose recommendation. Within daily maximum but taken in a short interval.";
-        immediateGuidance = "Do not take any additional paracetamol. Monitor for symptoms.";
-        redFlagTrigger = "If total intake exceeds 4 g within 24 hours. If patient is underweight, has liver disease, or consumes alcohol.";
-        escalationInstruction = "Seek medical evaluation if any red-flag condition applies. Go to emergency services immediately if severe symptoms develop.";
-      } else if (totalMg > 4000) {
-        riskAssessment = "CRITICAL: Dose exceeds maximum daily allowance (4g). High risk of hepatotoxicity.";
-        immediateGuidance = "Do NOT take any more medication. Contact poison control immediately.";
-        redFlagTrigger = "Any signs of nausea, vomiting, or abdominal pain.";
-        escalationInstruction = "Go to emergency services IMMEDIATELY. Require N-acetylcysteine (NAC) evaluation.";
-      }
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
     }
 
-    res.json({
-      input: `I took ${amount} tablets of ${strength} mg ${drug} in ${timeframeHours} hours.`,
-      evaluation: {
-        riskAssessment,
-        immediateGuidance,
-        redFlagTrigger,
-        escalationInstruction
-      }
-    });
+    try {
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        systemInstruction: "You are an elite clinical pharmacologist AI. You must evaluate dosage, potential overdose, or interactions based on the provided patient profile and their intake query. You MUST strictly output JSON with the following keys: riskAssessment (array of strings), immediateGuidance (array of strings), redFlagTrigger (array of strings), escalationInstruction (array of strings). Provide specific, medically validated guidance."
+      });
+
+      const prompt = `
+        PATIENT PROFILE:
+        Age: ${patientProfile.age}
+        Weight: ${patientProfile.weightKg}kg
+        Gender: ${patientProfile.gender}
+        Conditions: ${patientProfile.medicalConditions?.join(', ') || 'None'}
+        Allergies: ${patientProfile.knownAllergies?.join(', ') || 'None'}
+        Current Meds: ${patientProfile.currentMedications?.join(', ') || 'None'}
+
+        INTAKE QUERY: "${query}"
+
+        Analyze the safety risk and provide a structured report.
+      `;
+
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+      // Remove any markdown code blocks if present
+      const cleanJson = responseText.replace(/```json|```/g, "").trim();
+      const evaluation = JSON.parse(cleanJson);
+
+      res.json({ evaluation });
+    } catch (err) {
+      console.error("Gemini Evaluation Error:", err);
+      res.status(500).json({ error: "Failed to process clinical safety evaluation" });
+    }
   });
 
   // --- NEW: Pediatric Dose Calculator ---
@@ -168,6 +218,40 @@ async function startServer() {
       warning,
       isPediatric: true
     });
+  });
+
+  // --- NEW: OCR Medicine Label Scanning ---
+  app.post("/api/scanner/analyze", async (req, res) => {
+    const { image, mimeType } = req.body;
+    
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "Gemini API key not configured" });
+    }
+
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      const prompt = "Extract the following information from this medicine label: Drug Name, Dosage, Expiry Date (raw text), and Batch Number. If a field is not found, return 'Not Found'. Output strictly as JSON.";
+
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            data: image,
+            mimeType: mimeType
+          }
+        }
+      ]);
+
+      const responseText = result.response.text();
+      const cleanJson = responseText.replace(/```json|```/g, "").trim();
+      const extractedData = JSON.parse(cleanJson);
+
+      res.json({ extractedData });
+    } catch (err) {
+      console.error("OCR Analysis Error:", err);
+      res.status(500).json({ error: "Failed to analyze medicine label" });
+    }
   });
 
   // --- NEW: WebRTC Signaling & Chat (Socket.io) ---

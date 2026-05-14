@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc } from 'firebase/firestore';
-import { GoogleGenAI, Type } from '@google/genai';
 import { Camera, Upload, Loader2, ArrowLeft, Pill, Calendar, Hash, Clock, AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import Layout from '../components/Layout';
 
 export default function Scanner() {
   const { currentUser } = useAuth();
@@ -125,37 +125,25 @@ export default function Scanner() {
     setIsAnalyzing(true);
     
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const base64Data = imagePreview.split(',')[1];
       const mimeType = imagePreview.split(';')[0].split(':')[1];
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: {
-          parts: [
-            { inlineData: { data: base64Data, mimeType } },
-            { text: 'Extract the following information from this medicine label: Drug Name, Dosage, Expiry Date (raw text), and Batch Number. If a field is not found, return "Not Found".' }
-          ]
-        },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              drugName: { type: Type.STRING },
-              dosage: { type: Type.STRING },
-              rawExpiryDate: { type: Type.STRING },
-              batchNumber: { type: Type.STRING }
-            },
-            required: ['drugName', 'dosage', 'rawExpiryDate', 'batchNumber']
-          }
-        }
+      const res = await fetch('/api/scanner/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Data, mimeType })
       });
 
-      const result = JSON.parse(response.text || '{}');
+      const data = await res.json();
+      
+      if (!data.extractedData) {
+        throw new Error(data.error || "Failed to analyze label");
+      }
+
+      const result = data.extractedData;
       
       // Apply Regex Normalization
-      const normalizedDate = normalizeExpiryDate(result.rawExpiryDate);
+      const normalizedDate = normalizeExpiryDate(result.rawExpiryDate || result.expiryDate || "");
       
       setExtractedData({
         ...result,
@@ -206,13 +194,10 @@ export default function Scanner() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
-      {/* Decorative background elements */}
-      <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-teal-300/20 rounded-full blur-3xl pointer-events-none"></div>
-      
+    <Layout>
       <div className="max-w-4xl mx-auto relative z-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-medium">
-          <ArrowLeft size={20} /> Back to Dashboard
+        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-black uppercase text-[10px] tracking-widest">
+          <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
         <div className="text-center mb-10">
@@ -433,6 +418,6 @@ export default function Scanner() {
           </div>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

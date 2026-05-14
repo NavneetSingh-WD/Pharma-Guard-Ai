@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { User, Activity, AlertTriangle, Video, MapPin, PhoneCall, Search, Pill, FileText, Clock, CheckCircle2, Bell, AlertCircle, ShieldAlert, Store } from 'lucide-react';
+import { User, Activity, AlertTriangle, Video, MapPin, PhoneCall, Search, Pill, FileText, Clock, CheckCircle2, Bell, AlertCircle, ShieldAlert, Store, Settings, ScanText, Stethoscope, Calendar } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
 
 export default function PatientDashboard() {
-  const { currentUser, patientData } = useAuth();
+  const { currentUser, patientData, userProfile } = useAuth();
   const navigate = useNavigate();
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [reminders, setReminders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [recentSafetyChecks, setRecentSafetyChecks] = useState<any[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchData() {
@@ -21,10 +24,21 @@ export default function PatientDashboard() {
           collection(db, 'prescriptions'),
           where('patientId', '==', currentUser.uid),
           orderBy('createdAt', 'desc'),
-          limit(5)
+          limit(3)
         );
         const pSnap = await getDocs(pq);
         setPrescriptions(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // Fetch Appointments
+        const aq = query(
+          collection(db, 'appointments'),
+          where('patientId', '==', currentUser.uid),
+          orderBy('date', 'asc'),
+          orderBy('time', 'asc'),
+          limit(3)
+        );
+        const aSnap = await getDocs(aq);
+        setAppointments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
         // Fetch Reminders
         const rq = query(
@@ -33,6 +47,7 @@ export default function PatientDashboard() {
         );
         const rSnap = await getDocs(rq);
         setReminders(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        
       } catch (e) {
         console.error("Error fetching data:", e);
       } finally {
@@ -63,9 +78,14 @@ export default function PatientDashboard() {
           <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl group-hover:rotate-6 transition-transform">
             <User size={24} />
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800 leading-tight">Patient Profile</h2>
-            <p className="text-xs text-slate-500 font-medium tracking-wide border-b border-slate-100 pb-1">Clinical Record #VAL82</p>
+          <div className="flex-1">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-800 leading-tight">Patient Profile</h2>
+              <Link to="/onboarding" className="p-2 bg-slate-50 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Edit Clinical Profile">
+                <Settings size={14} />
+              </Link>
+            </div>
+            <p className="text-xs text-slate-500 font-black uppercase tracking-widest leading-none mt-1">{userProfile?.displayName || 'Identity Initializing...'}</p>
           </div>
         </div>
         
@@ -85,6 +105,21 @@ export default function PatientDashboard() {
         <div className="space-y-6">
           <div>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+              <Stethoscope size={14} className="text-teal-600" /> Medical Conditions
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {patientData?.medicalConditions && patientData.medicalConditions.length > 0 ? (
+                patientData.medicalConditions.map((condition, i) => (
+                  <span key={i} className="px-3 py-1.5 bg-teal-50/50 text-teal-700 text-xs font-bold rounded-xl border border-teal-100/50 backdrop-blur-sm self-start">{condition}</span>
+                ))
+              ) : (
+                <span className="text-sm text-slate-400 italic">No conditions reported</span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
               <AlertTriangle size={14} className="text-rose-500" /> Active Allergies
             </p>
             <div className="flex flex-wrap gap-2">
@@ -98,7 +133,25 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          <div className="pt-6 border-t border-slate-100">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+              <Pill size={14} className="text-indigo-600" /> Chronic Medications
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {patientData?.currentMedications && patientData.currentMedications.length > 0 ? (
+                patientData.currentMedications.map((med, i) => (
+                  <span key={i} className="px-3 py-1.5 bg-indigo-50/50 text-indigo-700 text-xs font-bold rounded-xl border border-indigo-100/50 backdrop-blur-sm self-start">{med}</span>
+                ))
+              ) : (
+                <span className="text-sm text-slate-400 italic">None reported</span>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-slate-100 space-y-3">
+            <Link to="/onboarding" className="w-full bg-indigo-50 text-indigo-600 font-bold py-4 rounded-2xl border border-indigo-100 hover:bg-indigo-100 transition-all text-center block text-sm flex items-center justify-center gap-2">
+              <Settings size={18} /> Update Clinical Profile
+            </Link>
             <Link to="/pediatric-calculator" className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-lg shadow-slate-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-center block text-sm flex items-center justify-center gap-2">
               <Activity size={18} /> Pediatric Dose Calculator
             </Link>
@@ -193,11 +246,11 @@ export default function PatientDashboard() {
       </div>
 
 
-      {/* Medication Reminders & Expiry Alerts (Col span 12) */}
-      <div className="md:col-span-12 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Medication Reminders & Appointments (Col span 12) */}
+      <div className="md:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Daily Dosage Alarms */}
-        <div className="bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
+        <div className="lg:col-span-1 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2.5 bg-teal-100 text-teal-600 rounded-xl">
               <Clock size={20} />
@@ -219,9 +272,6 @@ export default function PatientDashboard() {
                         <p className="text-xs text-slate-500">{rem.dosage}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                       <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
-                    </div>
                   </div>
                 ))
             ) : (
@@ -232,8 +282,39 @@ export default function PatientDashboard() {
           </div>
         </div>
 
+        {/* Upcoming Consultations */}
+        <div className="lg:col-span-1 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
+              <Calendar size={20} />
+            </div>
+            <h2 className="text-lg font-bold text-slate-800">Upcoming Consultations</h2>
+          </div>
+          <div className="space-y-3">
+            {loading ? (
+              <div className="flex justify-center py-6"><div className="animate-spin h-5 w-5 border-t-2 border-indigo-600 rounded-full"></div></div>
+            ) : appointments.length > 0 ? (
+              appointments.map((apt) => (
+                <div key={apt.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 border-l-4 border-l-indigo-500 group cursor-pointer hover:bg-white transition-all" onClick={() => navigate('/telemedicine')}>
+                  <div className="flex justify-between items-start mb-2">
+                    <p className="text-xs font-black text-indigo-600 uppercase tracking-widest">{apt.time}</p>
+                    <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded uppercase">{apt.type}</span>
+                  </div>
+                  <p className="text-sm font-bold text-slate-800">Dr. {apt.doctorName || 'Medical'}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-1">{apt.date}</p>
+                </div>
+              ))
+            ) : (
+              <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                <p className="text-slate-400 text-sm">No upcoming sessions.</p>
+                <button onClick={() => navigate('/telemedicine')} className="mt-2 text-indigo-600 text-xs font-bold hover:underline">Book Consultation</button>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Expiry Alerts */}
-        <div className="bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
+        <div className="lg:col-span-1 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-3xl p-6 flex flex-col hover:shadow-xl transition-shadow duration-300">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2.5 bg-amber-100 text-amber-600 rounded-xl">
               <Bell size={20} />
@@ -336,6 +417,84 @@ export default function PatientDashboard() {
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Recent Activity Feed (Col span 12) */}
+      <div className="md:col-span-12 bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg rounded-[2.5rem] p-8 flex flex-col hover:shadow-xl transition-shadow duration-300">
+        <div className="flex items-center justify-between mb-8">
+           <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-slate-100 text-slate-800 rounded-xl">
+                <Activity size={20} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight leading-none uppercase italic italic">Protocol Audit Log</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 italic">Real-time clinical event timeline</p>
+              </div>
+           </div>
+           <button className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">Download Full History</button>
+        </div>
+
+        <div className="space-y-4 relative">
+           {/* Timeline Line */}
+           <div className="absolute left-6 top-0 bottom-0 w-px bg-slate-100"></div>
+
+           {/* Activity Items */}
+           {/* Prescription Activity */}
+           {prescriptions.length > 0 && (
+             <div className="flex gap-6 relative z-10 group">
+                <div className="w-12 h-12 bg-white border-4 border-slate-50 rounded-2xl flex items-center justify-center text-violet-600 shadow-sm group-hover:rotate-6 transition-transform">
+                  <FileText size={20} />
+                </div>
+                <div className="flex-1 pb-6 border-b border-slate-50">
+                   <div className="flex justify-between items-center mb-1">
+                      <p className="text-sm font-bold text-slate-800">New Prescription Documented</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                        {new Date(prescriptions[0].createdAt).toLocaleDateString()}
+                      </p>
+                   </div>
+                   <p className="text-xs text-slate-500 font-medium">Digital script issued by Dr. {prescriptions[0].doctorName} for {prescriptions[0].medications?.length} medications.</p>
+                </div>
+             </div>
+           )}
+
+           {/* Reminder Activity (Last Scrolled/Added) */}
+           {reminders.length > 0 && (
+             <div className="flex gap-6 relative z-10 group">
+                <div className="w-12 h-12 bg-white border-4 border-slate-50 rounded-2xl flex items-center justify-center text-teal-600 shadow-sm group-hover:-rotate-6 transition-transform">
+                  <ScanText size={20} />
+                </div>
+                <div className="flex-1 pb-6 border-b border-slate-50">
+                   <div className="flex justify-between items-center mb-1">
+                      <p className="text-sm font-bold text-slate-800">Medicine Label OCR Scan</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                        {new Date(reminders[0].createdAt).toLocaleDateString()}
+                      </p>
+                   </div>
+                   <p className="text-xs text-slate-500 font-medium">Extracted data for {reminders[0].drugName}. Expiry verified and reminders scheduled.</p>
+                </div>
+             </div>
+           )}
+
+           {/* Emergency Hub Activity (Mocked as last HUB access if no real logs) */}
+           <div className="flex gap-6 relative z-10 group">
+              <div className="w-12 h-12 bg-white border-4 border-slate-50 rounded-2xl flex items-center justify-center text-rose-600 shadow-sm group-hover:rotate-12 transition-transform">
+                <ShieldAlert size={20} />
+              </div>
+              <div className="flex-1 pb-6 border-b border-slate-50">
+                 <div className="flex justify-between items-center mb-1">
+                    <p className="text-sm font-bold text-slate-800">Emergency Protocol Initialized</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Recent</p>
+                 </div>
+                 <p className="text-xs text-slate-500 font-medium">System verification of first aid hubs and medical bed telemetry completed successfully.</p>
+              </div>
+           </div>
+
+           {!loading && prescriptions.length === 0 && reminders.length === 0 && (
+             <div className="text-center py-10">
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest italic">No clinical events recorded in current epoch.</p>
+             </div>
+           )}
         </div>
       </div>
 

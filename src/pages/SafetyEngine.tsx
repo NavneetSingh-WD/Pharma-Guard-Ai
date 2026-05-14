@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { GoogleGenAI, Type } from '@google/genai';
 import { ArrowLeft, Activity, AlertCircle, ShieldAlert, HeartPulse, Stethoscope, Loader2, CheckCircle2 } from 'lucide-react';
+import Layout from '../components/Layout';
 
 interface SafetyReport {
   riskAssessment: string[];
@@ -23,61 +23,28 @@ export default function SafetyEngine() {
     setReport(null);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      
-      const prompt = `
-        Patient Profile:
-        - Age: ${patientData.age}
-        - Weight: ${patientData.weightKg} kg
-        - Gender: ${patientData.gender}
-        - Medical Conditions: ${patientData.medicalConditions?.join(', ') || 'None reported'}
-        - Allergies: ${patientData.knownAllergies?.join(', ') || 'None reported'}
-        - Current Medications: ${patientData.currentMedications?.join(', ') || 'None reported'}
-
-        Patient Query/Intake: "${query}"
-
-        Analyze the drug intake, dosage, potential drug-drug interactions (DDI), and overdose risks based on the patient's profile. 
-        Think clinically. Provide strict, medically validated guidance.
-      `;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.1-pro-preview',
-        contents: prompt,
-        config: {
-          systemInstruction: "You are an elite clinical pharmacologist AI. You must evaluate dosage, potential overdose, or interactions. You must strictly output JSON matching the required schema.",
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              riskAssessment: { 
-                type: Type.ARRAY, 
-                items: { type: Type.STRING },
-                description: "Assessment of the dose, interactions, and overall risk."
-              },
-              immediateGuidance: { 
-                type: Type.ARRAY, 
-                items: { type: Type.STRING },
-                description: "Immediate actionable steps for the patient."
-              },
-              redFlagTrigger: { 
-                type: Type.ARRAY, 
-                items: { type: Type.STRING },
-                description: "Specific symptoms or thresholds that indicate a severe emergency."
-              },
-              escalationInstruction: { 
-                type: Type.ARRAY, 
-                items: { type: Type.STRING },
-                description: "Instructions on when and how to seek emergency medical help."
-              }
-            },
-            required: ['riskAssessment', 'immediateGuidance', 'redFlagTrigger', 'escalationInstruction']
+      const res = await fetch('/api/safety/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          query,
+          patientProfile: {
+            age: patientData.age,
+            weightKg: patientData.weightKg,
+            gender: patientData.gender,
+            medicalConditions: patientData.medicalConditions,
+            knownAllergies: patientData.knownAllergies,
+            currentMedications: patientData.currentMedications
           }
-        }
+        })
       });
 
-      const result = JSON.parse(response.text || '{}') as SafetyReport;
-      setReport(result);
-
+      const data = await res.json();
+      if (data.evaluation) {
+        setReport(data.evaluation);
+      } else {
+        throw new Error(data.error || "Failed to process report");
+      }
     } catch (error) {
       console.error("Error analyzing safety:", error);
       alert("Failed to analyze the query. Please try again.");
@@ -87,12 +54,10 @@ export default function SafetyEngine() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
-      <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-rose-300/20 rounded-full blur-3xl pointer-events-none"></div>
-      
+    <Layout>
       <div className="max-w-4xl mx-auto relative z-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-medium">
-          <ArrowLeft size={20} /> Back to Dashboard
+        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-black uppercase text-[10px] tracking-widest">
+          <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
         <div className="text-center mb-10">
@@ -221,6 +186,6 @@ export default function SafetyEngine() {
           </div>
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

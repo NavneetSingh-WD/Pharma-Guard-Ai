@@ -16,6 +16,7 @@ export interface UserProfile {
 
 export interface PatientData {
   age?: number;
+  dob?: string;
   weightKg?: number;
   gender?: string;
   medicalConditions?: string[];
@@ -88,12 +89,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         
         // If patient, fetch patient data
-        if (profile.role === 'patient') {
+        if (profile.role === 'patient' || profile.role === 'admin') {
           const patientRef = doc(db, 'patients', user.uid);
           const patientSnap = await getDoc(patientRef);
           if (patientSnap.exists()) {
             setPatientData(patientSnap.data() as PatientData);
-          } else {
+          } else if (profile.role === 'patient') {
             const initialPatientData = { updatedAt: new Date().toISOString() };
             await setDoc(patientRef, initialPatientData);
             setPatientData(initialPatientData);
@@ -109,6 +110,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return unsubscribe;
   }, []);
+
+  // Sync patient data if role changes to patient dynamically
+  useEffect(() => {
+    async function syncPatientData() {
+      if (currentUser && userProfile?.role === 'patient' && !patientData) {
+        const patientRef = doc(db, 'patients', currentUser.uid);
+        const patientSnap = await getDoc(patientRef);
+        if (patientSnap.exists()) {
+          setPatientData(patientSnap.data() as PatientData);
+        }
+      }
+    }
+    syncPatientData();
+  }, [userProfile?.role, currentUser]);
 
   const loginWithGoogle = async () => {
     try {
@@ -133,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const docRef = doc(db, 'patients', currentUser.uid);
     const updatedData = { ...data, updatedAt: new Date().toISOString() };
     await setDoc(docRef, updatedData, { merge: true });
-    setPatientData((prev) => prev ? { ...prev, ...updatedData } : null);
+    setPatientData((prev) => ({ ...(prev || {}), ...updatedData }));
   };
 
   const updateProfessionalData = async (role: 'doctor' | 'pharmacist', data: Partial<ProfessionalData>) => {
@@ -149,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const docRef = doc(db, 'users', currentUser.uid);
     const updatedData = { ...data, updatedAt: new Date().toISOString() };
     await setDoc(docRef, updatedData, { merge: true });
-    setUserProfile((prev) => prev ? { ...prev, ...updatedData } : null);
+    setUserProfile((prev) => ({ ...(prev || {}), ...updatedData } as UserProfile));
   };
 
   return (

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, orderBy, getDocs, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { ArrowLeft, User, Activity, AlertTriangle, Pill, ClipboardList, Clock, Heart, Shield, CheckCircle2, ChevronRight, FileText, X, Database, Search, ShieldCheck, Plus, Loader2, Video } from 'lucide-react';
@@ -20,7 +20,13 @@ export default function PatientRecord() {
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isNoteHistoryModalOpen, setIsNoteHistoryModalOpen] = useState(false);
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
-  const [newNote, setNewNote] = useState({ category: 'Subjective', content: '' });
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isEditingDOB, setIsEditingDOB] = useState(false);
+  const [tempName, setTempName] = useState('');
+  const [tempDOB, setTempDOB] = useState('');
+  const [updatingName, setUpdatingName] = useState(false);
+  const [updatingDOB, setUpdatingDOB] = useState(false);
+  const [newNote, setNewNote] = useState({ category: 'Subjective', content: '', diagnosis: '', time: new Date().toISOString().slice(0, 16) });
   const [newExam, setNewExam] = useState({ testName: '', datePerformed: new Date().toISOString().split('T')[0], resultValue: '', unit: '', status: 'Normal' });
   const [noteSort, setNoteSort] = useState({ field: 'createdAt', order: 'desc' as 'asc' | 'desc' });
   const [savingNote, setSavingNote] = useState(false);
@@ -100,6 +106,8 @@ export default function PatientRecord() {
         doctorName: userProfile.displayName || 'Doctor',
         category: newNote.category,
         content: newNote.content,
+        diagnosis: newNote.category === 'Assessment' ? newNote.diagnosis : '',
+        clinicalTime: newNote.time,
         createdAt: serverTimestamp()
       };
 
@@ -115,7 +123,7 @@ export default function PatientRecord() {
       setClinicalNotes(nSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       
       setIsNoteModalOpen(false);
-      setNewNote({ category: 'Subjective', content: '' });
+      setNewNote({ category: 'Subjective', content: '', diagnosis: '', time: new Date().toISOString().slice(0, 16) });
     } catch (error) {
       console.error("Error adding clinical note:", error);
     } finally {
@@ -152,6 +160,36 @@ export default function PatientRecord() {
       console.error("Error adding exam result:", error);
     } finally {
       setSavingExam(false);
+    }
+  };
+
+  const handleUpdateName = async () => {
+    if (!tempName.trim() || !patientId) return;
+    setUpdatingName(true);
+    try {
+      const userRef = doc(db, 'users', patientId);
+      await updateDoc(userRef, { displayName: tempName.trim() });
+      setPatient(prev => prev ? { ...prev, displayName: tempName.trim() } : null);
+      setIsEditingName(false);
+    } catch (error) {
+      console.error("Error updating patient name:", error);
+    } finally {
+      setUpdatingName(false);
+    }
+  };
+
+  const handleUpdateDOB = async () => {
+    if (!tempDOB.trim() || !patientId) return;
+    setUpdatingDOB(true);
+    try {
+      const patientRef = doc(db, 'patients', patientId);
+      await updateDoc(patientRef, { dob: tempDOB });
+      setPatient(prev => prev ? { ...prev, medical: { ...prev.medical, dob: tempDOB } } : null);
+      setIsEditingDOB(false);
+    } catch (error) {
+      console.error("Error updating patient DOB:", error);
+    } finally {
+      setUpdatingDOB(false);
     }
   };
 
@@ -221,10 +259,74 @@ export default function PatientRecord() {
                   </div>
                </div>
 
-               <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase italic leading-none mb-2">{patient.displayName || 'UNNAMED_NODE'}</h1>
+               {isEditingName ? (
+                 <div className="w-full flex flex-col gap-2 mb-6">
+                   <input 
+                     type="text" 
+                     value={tempName}
+                     onChange={(e) => setTempName(e.target.value)}
+                     className="w-full px-4 py-3 bg-slate-50 border-2 border-indigo-500 rounded-xl text-lg font-black text-slate-800 outline-none uppercase italic"
+                     autoFocus
+                   />
+                   <div className="flex gap-2">
+                     <button 
+                       onClick={handleUpdateName}
+                       disabled={updatingName}
+                       className="flex-1 py-2 bg-indigo-600 text-white text-[10px] font-black rounded-lg uppercase tracking-widest disabled:opacity-50"
+                     >
+                       {updatingName ? 'Saving...' : 'Save Name'}
+                     </button>
+                     <button 
+                       onClick={() => setIsEditingName(false)}
+                       className="flex-1 py-2 bg-slate-100 text-slate-600 text-[10px] font-black rounded-lg uppercase tracking-widest"
+                     >
+                       Cancel
+                     </button>
+                   </div>
+                 </div>
+               ) : (
+                 <div className="flex items-center gap-3 mb-2 group/name" onClick={() => {
+                   if (userProfile?.role === 'doctor' || userProfile?.role === 'admin') {
+                     setTempName(patient.displayName || '');
+                     setIsEditingName(true);
+                   }
+                 }}>
+                   <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase italic leading-none">{patient.displayName || 'UNNAMED_NODE'}</h1>
+                   {(userProfile?.role === 'doctor' || userProfile?.role === 'admin') && (
+                     <div className="p-1.5 bg-slate-100 text-slate-400 rounded-lg group-hover/name:bg-indigo-600 group-hover/name:text-white transition-all cursor-pointer">
+                       <Plus size={14} className="rotate-45" />
+                     </div>
+                   )}
+                 </div>
+               )}
                <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-10">{patient.email}</p>
 
                <div className="w-full grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-100 text-left cursor-pointer hover:bg-white transition-colors" onClick={() => {
+                    if (userProfile?.role === 'doctor' || userProfile?.role === 'admin') {
+                      setTempDOB(patient.medical?.dob || '');
+                      setIsEditingDOB(true);
+                    }
+                  }}>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Date of Birth</p>
+                    {isEditingDOB ? (
+                      <div className="flex flex-col gap-2">
+                        <input 
+                          type="date"
+                          value={tempDOB}
+                          onChange={(e) => setTempDOB(e.target.value)}
+                          className="w-full px-2 py-1 bg-white border border-indigo-200 rounded-lg text-sm font-bold outline-none"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="flex gap-1">
+                          <button onClick={(e) => { e.stopPropagation(); handleUpdateDOB(); }} className="px-2 py-1 bg-indigo-600 text-white text-[8px] font-black rounded uppercase">Save</button>
+                          <button onClick={(e) => { e.stopPropagation(); setIsEditingDOB(false); }} className="px-2 py-1 bg-slate-200 text-slate-600 text-[8px] font-black rounded uppercase">X</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xl font-black text-slate-800 tracking-tighter">{patient.medical?.dob || 'UNSET'}</p>
+                    )}
+                  </div>
                   <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-100 text-left">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Age Payload</p>
                     <p className="text-2xl font-black text-slate-800 tracking-tighter">{patient.medical?.age || '--'}</p>
@@ -605,9 +707,21 @@ export default function PatientRecord() {
                                   }`}>
                                     {note.category}
                                   </span>
+                                  {note.clinicalTime && (
+                                    <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100 flex items-center gap-1">
+                                      <Clock size={10} />
+                                      {new Date(note.clinicalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  )}
                                   <p className="font-black text-slate-800 uppercase tracking-tight">Clinical Entry</p>
                                 </div>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">DR. {note.doctorName}</p>
+                                {note.category === 'Assessment' && note.diagnosis && (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-[8px] font-black text-white bg-slate-800 px-2 py-0.5 rounded uppercase tracking-widest">Diagnosis</span>
+                                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{note.diagnosis}</span>
+                                  </div>
+                                )}
                              </div>
                           </div>
                         </div>
@@ -960,7 +1074,7 @@ export default function PatientRecord() {
                               </div>
                               <div className="h-10 w-px bg-slate-100 mx-2"></div>
                               <div>
-                                 <div className="flex items-center gap-2 mb-1">
+                                  <div className="flex items-center gap-2 mb-1">
                                    <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${
                                      note.category === 'Subjective' ? 'bg-blue-100 text-blue-600' :
                                      note.category === 'Objective' ? 'bg-teal-100 text-teal-600' :
@@ -969,9 +1083,21 @@ export default function PatientRecord() {
                                    }`}>
                                      {note.category}
                                    </span>
+                                   {note.clinicalTime && (
+                                    <span className="text-[8px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 flex items-center gap-1">
+                                      <Clock size={8} />
+                                      {new Date(note.clinicalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  )}
                                    <p className="text-xs font-black text-slate-800 uppercase tracking-tight">Entry ID: {note.id.slice(0, 8)}</p>
                                  </div>
                                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Authenticated by DR. {note.doctorName}</p>
+                                 {note.category === 'Assessment' && note.diagnosis && (
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-[7px] font-black text-white bg-slate-800 px-1.5 py-0.5 rounded uppercase tracking-widest">Diagnosis</span>
+                                    <span className="text-[9px] font-black text-slate-700 uppercase tracking-tight">{note.diagnosis}</span>
+                                  </div>
+                                )}
                               </div>
                            </div>
                         </div>
@@ -1036,25 +1162,50 @@ export default function PatientRecord() {
               </div>
 
               <form onSubmit={handleAddNote} className="space-y-6">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Documentation Category</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {['Subjective', 'Objective', 'Assessment', 'Plan'].map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setNewNote({ ...newNote, category: cat })}
-                        className={`py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
-                          newNote.category === cat 
-                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                            : 'bg-slate-50 border-transparent text-slate-500 hover:border-indigo-200'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Documentation Category</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {['Subjective', 'Objective', 'Assessment', 'Plan'].map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setNewNote({ ...newNote, category: cat })}
+                          className={`py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${
+                            newNote.category === cat 
+                              ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200' 
+                              : 'bg-slate-50 border-transparent text-slate-500 hover:border-indigo-200'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Execution Time</label>
+                    <input 
+                      type="datetime-local"
+                      value={newNote.time}
+                      onChange={(e) => setNewNote({ ...newNote, time: e.target.value })}
+                      className="w-full px-6 py-4 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-sm font-bold shadow-inner outline-none transition-all"
+                    />
                   </div>
                 </div>
+
+                {newNote.category === 'Assessment' && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Diagnosis Node</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Hypertension (ICD-10 I10)"
+                      value={newNote.diagnosis}
+                      onChange={(e) => setNewNote({ ...newNote, diagnosis: e.target.value })}
+                      className="w-full px-6 py-4 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl text-sm font-bold shadow-inner outline-none transition-all placeholder:text-slate-300"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Clinical Observation Content</label>

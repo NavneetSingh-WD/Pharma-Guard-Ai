@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Calculator, Baby, AlertTriangle, Info, ShieldCheck, Weight, Syringe } from 'lucide-react';
+import Layout from '../components/Layout';
 import { calculateMgDose, calculateMlVolume, isPediatric as checkPediatric } from '../lib/pharmaUtils';
 
 export default function PediatricCalculator() {
@@ -53,12 +54,10 @@ export default function PediatricCalculator() {
   }, [weightKg, targetDoseMgKg, concentrationMg, concentrationMl, patientData?.weightKg]);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
-      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-300/20 rounded-full blur-3xl pointer-events-none"></div>
-      
+    <Layout>
       <div className="max-w-4xl mx-auto relative z-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-medium">
-          <ArrowLeft size={20} /> Back to Dashboard
+        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-black uppercase text-[10px] tracking-widest">
+          <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
         <div className="text-center mb-10">
@@ -275,6 +274,6 @@ export default function PediatricCalculator() {
 
         </div>
       </div>
-    </div>
+    </Layout>
   );
 }

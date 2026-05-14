@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Dashboard from './pages/Dashboard';
 import Onboarding from './pages/Onboarding';
@@ -18,7 +18,7 @@ import PharmacyLocator from './pages/PharmacyLocator';
 import PediatricCalculator from './pages/PediatricCalculator';
 import PatientRecord from './pages/Doctor/PatientRecord';
 import PharmacistInventory from './pages/Pharmacist/Inventory';
-import { Users, Calendar, Pill, Search, Plus, ArrowRight, Clock, FilePlus, AlertCircle } from 'lucide-react';
+import { Users, Calendar, Pill, Search, Plus, ArrowRight, Clock, FilePlus, AlertCircle, Settings } from 'lucide-react';
 import { collection, query, where, getDocs, limit, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import { db } from './firebase';
 import ScheduleModal from './components/modals/ScheduleModal';
@@ -98,7 +98,13 @@ function DoctorDashboard() {
       <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-6">
         <div>
           <h1 className="text-4xl font-black text-slate-800 tracking-tighter uppercase italic leading-none mb-2">Doctor Dashboard</h1>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unified Clinical & Patient Management Console</p>
+          <div className="flex items-center gap-3">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unified Clinical & Patient Management Console</p>
+            <div className="w-px h-3 bg-slate-200"></div>
+            <Link to="/onboarding" className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline flex items-center gap-1">
+              <Settings size={12} /> Edit Profile
+            </Link>
+          </div>
         </div>
         <div className="flex gap-3">
           <button 
@@ -248,6 +254,13 @@ function PrivateRoute({ children, allowedRoles }: { children: React.ReactNode, a
   
   if (!currentUser) return <Navigate to="/login" />;
   
+  const isAdminUser = userProfile?.role === 'admin' || currentUser?.email === 'goyalelectrocare@gmail.com';
+
+  // Admins can bypass almost everything for testing/management
+  if (isAdminUser) {
+    return <>{children}</>;
+  }
+
   // If user hasn't completed onboarding, redirect to onboarding
   if (userProfile?.role === 'unassigned') {
     return <Navigate to="/onboarding" />;

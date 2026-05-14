@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, PhoneCall, MapPin, AlertTriangle, HeartPulse, Activity, ShieldAlert, Navigation, Bed, Loader2, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, PhoneCall, MapPin, AlertTriangle, HeartPulse, Activity, ShieldAlert, Navigation, Bed, Loader2, CheckCircle2, X } from 'lucide-react';
+import Layout from '../components/Layout';
 
 export default function EmergencyHub() {
   const { userProfile, patientData } = useAuth();
@@ -10,18 +11,51 @@ export default function EmergencyHub() {
   const [location, setLocation] = useState<string | null>(null);
   const [hospitals, setHospitals] = useState<any[]>([]);
 
+  const [protocolViewer, setProtocolViewer] = useState<any>(null);
+
   useEffect(() => {
     const fetchBeds = async () => {
       try {
         const res = await fetch('/api/emergency/beds');
         const data = await res.json();
-        setHospitals(data.hospitals);
+        setHospitals(data.hospitals.map((h: any) => ({
+          ...h,
+          beds: h.beds.general,
+          icu: h.beds.icu,
+          status: h.beds.general > 0 ? 'available' : 'full'
+        })));
       } catch (err) {
         console.error("Failed to fetch beds", err);
       }
     };
     fetchBeds();
   }, []);
+
+  const protocols = {
+    anaphylaxis: {
+      title: "Anaphylaxis Protocol",
+      steps: [
+        "Lay the person flat. Do not let them stand or walk.",
+        "Administer Epinephrine auto-injector (Epi-Pen) in the outer mid-thigh.",
+        "Call Emergency Services (911) immediately.",
+        "If there is no improvement after 5-10 minutes, administer a second dose if available.",
+        "Monitor airway and breathing until responders arrive."
+      ],
+      color: "rose"
+    },
+    overdose: {
+      title: "Suspected Overdose",
+      steps: [
+        "Stay calm and call emergency services immediately.",
+        "Check for responsiveness and breathing.",
+        "Do NOT induce vomiting unless instructed by poison control.",
+        "Prevent further intake of the substance.",
+        "Monitor vitals (pulse, breathing) and be prepared to perform CPR if necessary.",
+        "Gather substance containers for responders to identify."
+      ],
+      color: "amber"
+    }
+  };
 
   const handleDispatch = async () => {
     setIsDispatching(true);
@@ -75,12 +109,10 @@ export default function EmergencyHub() {
   ]);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 relative overflow-hidden">
-      <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
-      
+    <Layout>
       <div className="max-w-6xl mx-auto relative z-10">
-        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-medium">
-          <ArrowLeft size={20} /> Back to Dashboard
+        <Link to="/" className="inline-flex items-center gap-2 text-slate-500 hover:text-slate-800 mb-8 transition-colors font-black uppercase text-[10px] tracking-widest">
+          <ArrowLeft size={16} /> Back to Dashboard
         </Link>
 
         <div className="text-center mb-10">
@@ -222,11 +254,17 @@ export default function EmergencyHub() {
                  Medical Protocols
                </h2>
                <div className="space-y-4 relative z-10">
-                 <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 hover:bg-white/15 transition-colors cursor-pointer group/opt">
+                 <div 
+                   onClick={() => setProtocolViewer(protocols.anaphylaxis)}
+                   className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 hover:bg-white/15 transition-colors cursor-pointer group/opt"
+                 >
                     <p className="font-bold text-sm mb-1 group-hover/opt:text-rose-400 transition-colors uppercase tracking-tight">Anaphylaxis</p>
                     <p className="text-[10px] text-white/50 leading-relaxed">Lay flat, Epi-Pen, call-911 instantly.</p>
                  </div>
-                 <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 hover:bg-white/15 transition-colors cursor-pointer group/opt">
+                 <div 
+                   onClick={() => setProtocolViewer(protocols.overdose)}
+                   className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10 hover:bg-white/15 transition-colors cursor-pointer group/opt"
+                 >
                     <p className="font-bold text-sm mb-1 group-hover/opt:text-amber-400 transition-colors uppercase tracking-tight">Overdose</p>
                     <p className="text-[10px] text-white/50 leading-relaxed">Safety monitor, do NOT induce vomiting.</p>
                  </div>
@@ -237,6 +275,42 @@ export default function EmergencyHub() {
 
         </div>
       </div>
-    </div>
+
+      {/* Medical Protocol Modal */}
+      {protocolViewer && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-lg overflow-hidden shadow-2xl relative">
+              <div className={`p-8 bg-${protocolViewer.color}-600 text-white`}>
+                 <div className="flex justify-between items-center mb-4">
+                    <HeartPulse size={32} />
+                    <button onClick={() => setProtocolViewer(null)} className="p-2 hover:bg-white/20 rounded-xl transition-colors">
+                      <X size={24} />
+                    </button>
+                 </div>
+                 <h2 className="text-3xl font-black uppercase italic tracking-tighter">{protocolViewer.title}</h2>
+              </div>
+              <div className="p-8">
+                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Immediate Action Protocol</p>
+                 <div className="space-y-4">
+                    {protocolViewer.steps.map((step: string, i: number) => (
+                      <div key={i} className="flex gap-4">
+                         <div className={`w-6 h-6 rounded-lg bg-${protocolViewer.color}-100 text-${protocolViewer.color}-600 flex items-center justify-center font-black text-xs shrink-0`}>
+                           {i + 1}
+                         </div>
+                         <p className="text-slate-700 font-bold leading-relaxed">{step}</p>
+                      </div>
+                    ))}
+                 </div>
+                 <button 
+                  onClick={() => setProtocolViewer(null)}
+                  className={`mt-10 w-full py-4 rounded-xl font-black uppercase tracking-widest text-sm bg-slate-900 text-white hover:bg-slate-800 transition-colors shadow-lg`}
+                 >
+                   Understood - Monitor Vitals
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+    </Layout>
   );
 }
