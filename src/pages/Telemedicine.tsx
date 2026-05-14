@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
-import { collection, doc, setDoc, query, where, getDocs, orderBy, limit, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, query, where, getDocs, orderBy, limit, onSnapshot, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { Video, Users, ArrowRight, Stethoscope, ArrowLeft, Calendar, Clock, AlertTriangle, Zap, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout';
