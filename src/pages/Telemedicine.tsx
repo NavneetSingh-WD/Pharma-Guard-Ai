@@ -15,48 +15,7 @@ export default function Telemedicine() {
   const [loadingApts, setLoadingApts] = useState(true);
   const navigate = useNavigate();
   const { currentUser, userProfile } = useAuth();
-
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-
-    // Fetch appointments for today or upcoming where the user is a participant
-    const q = query(
-      collection(db, 'appointments'),
-      where(userProfile?.role === 'doctor' ? 'doctorId' : 'patientId', '==', currentUser.uid),
-      orderBy('date', 'asc'),
-      orderBy('time', 'asc'),
-      limit(10)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setAppointments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoadingApts(false);
-    }, (error) => {
-      console.error("Error fetching appointments for telemedicine:", error);
-      setLoadingApts(false);
-    });
-
-    return () => unsubscribe();
-  }, [currentUser?.uid, userProfile?.role]);
-
   const [activeSOS, setActiveSOS] = useState<any>(null);
-
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-    const q = query(
-      collection(db, 'emergency_calls'),
-      where('patientId', '==', currentUser.uid),
-      where('status', '==', 'active'),
-      limit(1)
-    );
-    return onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        setActiveSOS({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
-      } else {
-        setActiveSOS(null);
-      }
-    });
-  }, [currentUser?.uid]);
 
   const cancelSOS = async () => {
     if (!activeSOS) return;
@@ -87,20 +46,72 @@ export default function Telemedicine() {
 
       // Create room
       const roomRef = doc(db, 'chatRooms', sosId);
+      const sessionId = Date.now().toString();
       await setDoc(roomRef, {
         participants: [currentUser.uid],
         createdAt: new Date().toISOString(),
-        status: 'emergency',
-        type: 'SOS'
+        status: 'active', // Set to active so it can be joined immediately
+        type: 'SOS',
+        currentSessionId: sessionId
       });
 
-      // navigate(`/consultation/${sosId}`); // Wait for doctor to join or just go in
+      navigate(`/consultation/${sosId}`);
     } catch (error) {
       console.error("SOS Trigger Error:", error);
     } finally {
       setIsSOSLoading(false);
     }
   };
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const action = searchParams.get('action');
+    if (action === 'sos' && currentUser && !activeSOS && !isSOSLoading) {
+      triggerSOS();
+      // Remove query param to prevent re-triggering on refresh
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [currentUser, activeSOS, isSOSLoading]);
+
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+
+    // Fetch appointments for today or upcoming where the user is a participant
+    const q = query(
+      collection(db, 'appointments'),
+      where(userProfile?.role === 'doctor' ? 'doctorId' : 'patientId', '==', currentUser.uid),
+      orderBy('date', 'asc'),
+      orderBy('time', 'asc'),
+      limit(10)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setAppointments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoadingApts(false);
+    }, (error) => {
+      console.error("Error fetching appointments for telemedicine:", error);
+      setLoadingApts(false);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser?.uid, userProfile?.role]);
+
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    const q = query(
+      collection(db, 'emergency_calls'),
+      where('patientId', '==', currentUser.uid),
+      where('status', '==', 'active'),
+      limit(1)
+    );
+    return onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setActiveSOS({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      } else {
+        setActiveSOS(null);
+      }
+    });
+  }, [currentUser?.uid]);
 
   const createRoom = async () => {
     setIsCreating(true);

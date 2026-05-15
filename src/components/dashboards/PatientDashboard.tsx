@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { User, Activity, AlertTriangle, Video, MapPin, PhoneCall, Search, Pill, FileText, Clock, CheckCircle2, Bell, AlertCircle, ShieldAlert, Store, Settings, ScanText, Stethoscope, Calendar, Zap, ArrowRight } from 'lucide-react';
+import { User, Activity, AlertTriangle, Video, MapPin, PhoneCall, Search, Pill, FileText, Clock, CheckCircle2, Bell, AlertCircle, ShieldAlert, Store, Settings, ScanText, Stethoscope, Calendar, Zap, ArrowRight, Info, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -14,6 +14,7 @@ export default function PatientDashboard() {
 
   const [recentSafetyChecks, setRecentSafetyChecks] = useState<any[]>([]);
   const [appointments, setAppointments] = useState<any[]>([]);
+  const [selectedReminder, setSelectedReminder] = useState<any>(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -106,7 +107,7 @@ export default function PatientDashboard() {
                </div>
             </div>
             <button 
-              onClick={() => navigate('/telemedicine')}
+              onClick={() => navigate('/telemedicine?action=sos')}
               className="bg-white text-rose-600 px-8 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 shrink-0"
             >
                Request Emergency Consult <ArrowRight size={14} />
@@ -308,7 +309,7 @@ export default function PatientDashboard() {
               reminders.flatMap(r => r.dailyTimes.map((time: string, i: number) => ({ ...r, time, timeId: `${r.id}-${i}` })))
                 .sort((a, b) => a.time.localeCompare(b.time))
                 .map((rem) => (
-                  <div key={rem.timeId} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl border border-slate-100 border-l-4 border-l-teal-500">
+                  <div key={rem.timeId} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl border border-slate-100 border-l-4 border-l-teal-500 group">
                     <div className="flex items-center gap-4">
                       <p className="text-xl font-bold text-slate-800 font-mono">{rem.time}</p>
                       <div>
@@ -316,6 +317,13 @@ export default function PatientDashboard() {
                         <p className="text-xs text-slate-500">{rem.dosage}</p>
                       </div>
                     </div>
+                    <button 
+                      onClick={() => setSelectedReminder(rem)}
+                      className="p-2 text-teal-600 hover:bg-teal-100 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="View Clinical Info"
+                    >
+                      <Info size={16} />
+                    </button>
                   </div>
                 ))
             ) : (
@@ -565,6 +573,87 @@ export default function PatientDashboard() {
         </div>
       </div>
     </div>
+    
+    {/* Medicine Detail Modal */}
+    {selectedReminder && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setSelectedReminder(null)}></div>
+        <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl relative z-10 overflow-hidden border border-slate-100">
+          <div className="p-8">
+            <div className="flex justify-between items-start mb-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-teal-100 text-teal-600 rounded-2xl">
+                  <Pill size={28} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-slate-800 tracking-tight">{selectedReminder.drugName}</h3>
+                  <p className="text-teal-600 font-bold uppercase tracking-widest text-[10px]">{selectedReminder.dosage}</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedReminder(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                <X size={24} className="text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Batch No.</p>
+                  <p className="text-sm font-bold text-slate-800">{selectedReminder.batchNumber}</p>
+                </div>
+                <div className="w-px h-8 bg-slate-200"></div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Expiry Date</p>
+                  <p className="text-sm font-bold text-slate-800">{selectedReminder.expiryDate}</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-2">
+                <div>
+                  <p className="text-xs font-black text-indigo-600 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                    <FileText size={14} /> Usage Protocol
+                  </p>
+                  <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                    <p className="text-sm text-slate-700 leading-relaxed font-medium">
+                      {selectedReminder.usageInfo || 'Historical data extraction pending for this record.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-black text-rose-600 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                    <AlertCircle size={14} /> Reported Side Effects
+                  </p>
+                  <div className="p-4 bg-rose-50/50 rounded-2xl border border-rose-100">
+                    <p className="text-sm text-slate-700 leading-relaxed font-medium transition-all group-hover:scale-[1.01]">
+                      {selectedReminder.sideEffects || 'Historical data extraction pending for this record.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-black text-amber-600 uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                    <ShieldAlert size={14} /> Safety Warnings
+                  </p>
+                  <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-100">
+                    <p className="text-sm text-slate-700 leading-relaxed font-medium">
+                      {selectedReminder.precautions || 'Historical data extraction pending for this record.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setSelectedReminder(null)}
+              className="mt-8 w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-slate-800 transition-all uppercase tracking-widest text-[10px]"
+            >
+              Close Identity Port
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   </div>
 );
 }

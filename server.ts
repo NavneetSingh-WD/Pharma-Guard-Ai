@@ -4,10 +4,23 @@ import path from "path";
 import http from "http";
 import { Server } from "socket.io";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 
 // Initialize Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const getGenAI = () => {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new Error("GEMINI_API_KEY is missing. Please ensure it is set in the environment secrets.");
+  }
+  return new GoogleGenAI({
+    apiKey: key,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+};
 
 async function startServer() {
   const app = express();
@@ -145,17 +158,14 @@ async function startServer() {
   app.post("/api/safety/evaluate", async (req, res) => {
     const { query, patientProfile } = req.body;
     
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Gemini API key not configured" });
-    }
-
     try {
-      const model = genAI.getGenerativeModel({ 
-        model: "gemini-1.5-flash",
-        systemInstruction: "You are an elite clinical pharmacologist AI. You must evaluate dosage, potential overdose, or interactions based on the provided patient profile and their intake query. You MUST strictly output JSON with the following keys: riskAssessment (array of strings), immediateGuidance (array of strings), redFlagTrigger (array of strings), escalationInstruction (array of strings). Provide specific, medically validated guidance."
-      });
-
-      const prompt = `
+      const ai = getGenAI();
+      const response = await ai.models.generateContent({ 
+        model: "gemini-3-flash-preview",
+        config: {
+          systemInstruction: "You are an elite clinical pharmacologist AI. You must evaluate dosage, potential overdose, or interactions based on the provided patient profile and their intake query. You MUST strictly output JSON with the following keys: riskAssessment (array of strings), immediateGuidance (array of strings), redFlagTrigger (array of strings), escalationInstruction (array of strings). Provide specific, medically validated guidance."
+        },
+        contents: `
         PATIENT PROFILE:
         Age: ${patientProfile.age}
         Weight: ${patientProfile.weightKg}kg
@@ -167,18 +177,21 @@ async function startServer() {
         INTAKE QUERY: "${query}"
 
         Analyze the safety risk and provide a structured report.
-      `;
+      `
+      });
 
-      const result = await model.generateContent(prompt);
-      const responseText = result.response.text();
+      const responseText = response.text || "";
       // Remove any markdown code blocks if present
       const cleanJson = responseText.replace(/```json|```/g, "").trim();
       const evaluation = JSON.parse(cleanJson);
 
       res.json({ evaluation });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Gemini Evaluation Error:", err);
-      res.status(500).json({ error: "Failed to process clinical safety evaluation" });
+      res.status(500).json({ 
+        error: "Failed to process clinical safety evaluation",
+        details: err?.message || String(err)
+      });
     }
   });
 
@@ -224,33 +237,57 @@ async function startServer() {
   app.post("/api/scanner/analyze", async (req, res) => {
     const { image, mimeType } = req.body;
     
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: "Gemini API key not configured" });
-    }
-
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const ai = getGenAI();
+      const response = await ai.models.generateContent({ 
+        model: "gemini-3-flash-preview",
+        contents: [
+          {
+            inlineData: {
+              data: image,
+              mimeType: mimeType
+            }
+          },
+          "Extract the following information from this medicine label. You MUST output strictly valid JSON. If a field is not found, return 'Not Found'.\n\nRequired JSON format:\n{\n  \"drugName\": \"Name of the medicine\",\n  \"dosage\": \"Dosage strength (e.g. 500mg)\",\n  \"expiryDate\": \"The raw expiry date text EXACTLY as printed on the label\",\n  \"batchNumber\": \"The batch or lot number\",\n  \"usageInfo\": \"Detailed usage instructions and frequency extracted from the label\",\n  \"sideEffects\": \"Common side effects mentioned on the label or packaging\",\n  \"precautions\": \"Key precautions, warnings, or storage instructions (e.g. 'Keep away from children', 'Store in a cool dry place')\"\n}"
+        ]
+      });
 
-      const prompt = "Extract the following information from this medicine label: Drug Name, Dosage, Expiry Date (raw text), and Batch Number. If a field is not found, return 'Not Found'. Output strictly as JSON.";
-
-      const result = await model.generateContent([
-        prompt,
-        {
-          inlineData: {
-            data: image,
-            mimeType: mimeType
-          }
-        }
-      ]);
-
-      const responseText = result.response.text();
+      const responseText = response.text || "";
       const cleanJson = responseText.replace(/```json|```/g, "").trim();
       const extractedData = JSON.parse(cleanJson);
 
       res.json({ extractedData });
-    } catch (err) {
+    } catch (err: any) {
       console.error("OCR Analysis Error:", err);
-      res.status(500).json({ error: "Failed to analyze medicine label" });
+      res.status(500).json({ 
+        error: "Failed to analyze medicine label",
+        details: err?.message || String(err)
+      });
+    }
+  });
+
+  // --- NEW: AI Generic Substitution Engine ---
+  app.post("/api/pharmacist/substitution", async (req, res) => {
+    const { brandName } = req.body;
+    
+    try {
+      const ai = getGenAI();
+      const response = await ai.models.generateContent({ 
+        model: "gemini-3-flash-preview",
+        config: {
+          systemInstruction: "You are a clinical pharmacologist. Suggest a cost-effective generic alternative for the given brand-name medicine. Provide the generic name, composition details, and estimated savings percentage. Output strictly valid JSON."
+        },
+        contents: `Find generic alternative for brand: "${brandName}".\nFormat: { "genericName": "...", "composition": "...", "savings": "..." }`
+      });
+
+      const responseText = response.text || "";
+      const cleanJson = responseText.replace(/```json|```/g, "").trim();
+      const subData = JSON.parse(cleanJson);
+
+      res.json({ subData });
+    } catch (err: any) {
+      console.error("Substitution API Error:", err);
+      res.status(500).json({ error: "Failed to fetch substitution data" });
     }
   });
 

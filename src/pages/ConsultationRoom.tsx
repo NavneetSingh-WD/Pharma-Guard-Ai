@@ -4,14 +4,17 @@ import { db, storage } from '../firebase';
 import { collection, doc, setDoc, getDoc, updateDoc, onSnapshot, addDoc, query, orderBy, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '../contexts/AuthContext';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, Paperclip, Loader2, FileText, Copy, CheckCircle2, Activity, SignalLow, Check, Smile, Clipboard, MessageSquare, Heart, ThumbsUp, Zap, Star, Eraser, PenTool, CheckCheck } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Send, Paperclip, Loader2, FileText, Copy, CheckCircle2, Activity, SignalLow, Check, Smile, Clipboard, MessageSquare, Heart, ThumbsUp, Zap, Star, Eraser, PenTool, CheckCheck, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 const configuration = {
   iceServers: [
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export default function ConsultationRoom() {
@@ -25,9 +28,16 @@ export default function ConsultationRoom() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<string[]>([]);
+  const [isRoomReady, setIsRoomReady] = useState(false);
+  const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [reconnectKey, setReconnectKey] = useState(0);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isError, setIsError] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isUploading, setIsUploading] = useState(false);
@@ -114,25 +124,111 @@ export default function ConsultationRoom() {
     return () => clearInterval(interval);
   }, [remoteStream]);
 
+  // Handle Stream Binding Correctly
   useEffect(() => {
+    if (remoteStream && remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      // Force play to handle some browser policies
+      remoteVideoRef.current.play().catch(e => console.error("Auto-play failed:", e));
+    }
+  }, [remoteStream]);
+
+  useEffect(() => {
+    if (localStream && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  // Consolidated Room & Session Synchronization
+  useEffect(() => {
+    if (!roomId || !currentUser) return;
     let isMounted = true;
-    let localStreamRef: MediaStream | null = null;
-    let unsubscribeRoom: () => void;
-    let unsubscribeCandidates: () => void;
+
+    const roomRef = doc(db, 'chatRooms', roomId);
+    
+    // Initial check and setup
+    const setupRoom = async () => {
+      const roomSnap = await getDoc(roomRef);
+      if (!roomSnap.exists()) {
+        const sessionId = Date.now().toString();
+        await setDoc(roomRef, {
+          participants: [currentUser.uid],
+          createdAt: new Date().toISOString(),
+          status: 'active',
+          offer: null,
+          answer: null,
+          currentSessionId: sessionId,
+          sessionInitiator: currentUser.uid
+        });
+      } else {
+        const data = roomSnap.data();
+        if (data.status === 'ended') {
+          const sessionId = Date.now().toString();
+          await updateDoc(roomRef, {
+            status: 'active',
+            offer: null,
+            answer: null,
+            participants: [currentUser.uid],
+            currentSessionId: sessionId,
+            sessionInitiator: currentUser.uid
+          });
+        } else if (!data.participants?.includes(currentUser.uid)) {
+          await updateDoc(roomRef, {
+            participants: arrayUnion(currentUser.uid)
+          });
+        }
+      }
+    };
+
+    setupRoom();
+
+    // Real-time sync for participants and session updates
+    const unsubscribe = onSnapshot(roomRef, (snapshot) => {
+      if (!isMounted || !snapshot.exists()) return;
+      const data = snapshot.data();
+      
+      setParticipants(data.participants || []);
+      
+      if (data.currentSessionId && data.currentSessionId !== currentSessionId) {
+        setCurrentSessionId(data.currentSessionId);
+        setIsConnecting(true);
+        setRemoteStream(null);
+        setIsError(null);
+        setIsRoomReady(true);
+      } else if (data.currentSessionId) {
+        setIsRoomReady(true);
+      }
+
+      if (data.status === 'ended') {
+        hangUp();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [roomId, currentUser?.uid, currentSessionId]);
+
+  // Main WebRTC Effect
+  useEffect(() => {
+    if (!currentUser || !roomId || !currentSessionId || !isRoomReady) return;
+    let isMounted = true;
+    let unsubscribeCandidates: (() => void) | null = null;
+    let unsubscribeRoom: (() => void) | null = null;
 
     const initWebRTC = async () => {
-      if (!roomId) return;
-
       try {
+        console.log("Initializing WebRTC for session:", currentSessionId);
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        
         if (!isMounted) {
           stream.getTracks().forEach(track => track.stop());
           return;
         }
         
-        localStreamRef = stream;
+        localStreamRef.current = stream;
         setLocalStream(stream);
-        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
         const pc = new RTCPeerConnection(configuration);
         peerConnection.current = pc;
@@ -141,39 +237,47 @@ export default function ConsultationRoom() {
 
         pc.ontrack = (event) => {
           if (!isMounted) return;
-          setRemoteStream(event.streams[0]);
-          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+          console.log("Remote track received:", event.track.kind);
+          
+          if (event.streams && event.streams[0]) {
+            setRemoteStream(event.streams[0]);
+          } else {
+            setRemoteStream(prev => {
+              const s = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
+              if (!s.getTracks().find(t => t.id === event.track.id)) {
+                s.addTrack(event.track);
+              }
+              return s;
+            });
+          }
           setIsConnecting(false);
+        };
+        
+        pc.onconnectionstatechange = () => {
+          if (!isMounted) return;
+          console.log("PC Connection State:", pc.connectionState);
+          if (pc.connectionState === 'connected') {
+            setIsConnecting(false);
+            setIsError(null);
+          } else if (pc.connectionState === 'failed') {
+            console.error("WebRTC Connection failed");
+            setIsError("Secure connection failed. This may be due to restricted network environments.");
+            setIsConnecting(false);
+          }
         };
 
         const roomRef = doc(db, 'chatRooms', roomId);
-        let roomSnap = await getDoc(roomRef);
-
-        if (!roomSnap.exists()) {
-          // If room doesn't exist (e.g. joined via Appointment ID for first time), initialize it
-          await setDoc(roomRef, {
-            participants: [currentUser?.uid],
-            createdAt: new Date().toISOString(),
-            status: 'active'
-          });
-          roomSnap = await getDoc(roomRef);
-        }
-
+        const roomSnap = await getDoc(roomRef);
         const roomData = roomSnap.data();
+        if (!roomData || !isMounted) return;
 
-        if (roomData && !roomData.participants?.includes(currentUser?.uid)) {
-          await updateDoc(roomRef, {
-            participants: arrayUnion(currentUser?.uid)
-          });
-        }
+        // Use initiator to determine role
+        const isCaller = roomData.sessionInitiator === currentUser.uid;
+        const sessionRef = doc(roomRef, 'sessions', currentSessionId);
+        const callerCandidatesCollection = collection(sessionRef, 'callerCandidates');
+        const calleeCandidatesCollection = collection(sessionRef, 'calleeCandidates');
 
-        if (!isMounted || (pc.signalingState as string) === 'closed') return;
-
-        if (!roomData.offer) {
-          // I am the caller
-          const callerCandidatesCollection = collection(roomRef, 'callerCandidates');
-          const calleeCandidatesCollection = collection(roomRef, 'calleeCandidates');
-
+        if (isCaller) {
           pc.onicecandidate = event => {
             if (event.candidate && isMounted) {
               addDoc(callerCandidatesCollection, event.candidate.toJSON());
@@ -181,83 +285,101 @@ export default function ConsultationRoom() {
           };
 
           const offer = await pc.createOffer();
-          if (!isMounted || (pc.signalingState as string) === 'closed') return;
           await pc.setLocalDescription(offer);
 
           await updateDoc(roomRef, {
-            offer: { type: offer.type, sdp: offer.sdp }
+            offer: { 
+              type: offer.type, 
+              sdp: offer.sdp, 
+              uid: currentUser.uid, 
+              sessionId: currentSessionId,
+              timestamp: Date.now() 
+            },
+            answer: null
           });
 
-          unsubscribeRoom = onSnapshot(roomRef, snapshot => {
+          unsubscribeRoom = onSnapshot(roomRef, async snapshot => {
             if (!isMounted) return;
             const data = snapshot.data();
+            if (data?.currentSessionId !== currentSessionId) return; 
             
-            // Handle remote disconnection/end
-            if (data?.status === 'ended') {
-              hangUp();
-              return;
-            }
-
             if ((pc.signalingState as string) !== 'closed' && !pc.currentRemoteDescription && data?.answer) {
-              const answer = new RTCSessionDescription(data.answer);
-              pc.setRemoteDescription(answer);
+              if (data.answer.sessionId === currentSessionId) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+                while (iceCandidatesQueue.current.length > 0) {
+                  const candidate = iceCandidatesQueue.current.shift();
+                  if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.warn);
+                }
+              }
             }
           });
 
-          unsubscribeCandidates = onSnapshot(calleeCandidatesCollection, snapshot => {
+          unsubscribeCandidates = onSnapshot(calleeCandidatesCollection, async snapshot => {
             if (!isMounted) return;
-            snapshot.docChanges().forEach(change => {
+            for (const change of snapshot.docChanges()) {
               if (change.type === 'added' && (pc.signalingState as string) !== 'closed') {
-                const candidate = new RTCIceCandidate(change.doc.data());
-                pc.addIceCandidate(candidate);
+                const candidateData = change.doc.data();
+                if (pc.remoteDescription && pc.remoteDescription.type) {
+                  await pc.addIceCandidate(new RTCIceCandidate(candidateData)).catch(console.warn);
+                } else {
+                  iceCandidatesQueue.current.push(candidateData);
+                }
               }
-            });
+            }
           });
         } else {
-          // I am the callee
-          const callerCandidatesCollection = collection(roomRef, 'callerCandidates');
-          const calleeCandidatesCollection = collection(roomRef, 'calleeCandidates');
-
           pc.onicecandidate = event => {
             if (event.candidate && isMounted) {
               addDoc(calleeCandidatesCollection, event.candidate.toJSON());
             }
           };
 
-          const offer = roomData.offer;
-          await pc.setRemoteDescription(new RTCSessionDescription(offer));
-
-          if (!isMounted || (pc.signalingState as string) === 'closed') return;
-          const answer = await pc.createAnswer();
-          if (!isMounted || (pc.signalingState as string) === 'closed') return;
-          await pc.setLocalDescription(answer);
-
-          await updateDoc(roomRef, {
-            answer: { type: answer.type, sdp: answer.sdp }
-          });
-
-          unsubscribeRoom = onSnapshot(roomRef, snapshot => {
+          unsubscribeRoom = onSnapshot(roomRef, async snapshot => {
             if (!isMounted) return;
             const data = snapshot.data();
-            if (data?.status === 'ended') {
-              hangUp();
-              return;
+            if (data?.currentSessionId !== currentSessionId) return;
+
+            if (data?.offer && !pc.currentRemoteDescription && (pc.signalingState as string) !== 'closed') {
+              if (data.offer.sessionId === currentSessionId) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                await updateDoc(roomRef, {
+                  answer: { 
+                    type: answer.type, 
+                    sdp: answer.sdp, 
+                    uid: currentUser.uid, 
+                    sessionId: currentSessionId,
+                    timestamp: Date.now() 
+                  }
+                });
+
+                while (iceCandidatesQueue.current.length > 0) {
+                  const candidate = iceCandidatesQueue.current.shift();
+                  if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.warn);
+                }
+              }
             }
           });
 
-          unsubscribeCandidates = onSnapshot(callerCandidatesCollection, snapshot => {
+          unsubscribeCandidates = onSnapshot(callerCandidatesCollection, async snapshot => {
             if (!isMounted) return;
-            snapshot.docChanges().forEach(change => {
+            for (const change of snapshot.docChanges()) {
               if (change.type === 'added' && (pc.signalingState as string) !== 'closed') {
-                const candidate = new RTCIceCandidate(change.doc.data());
-                pc.addIceCandidate(candidate);
+                const candidateData = change.doc.data();
+                if (pc.remoteDescription && pc.remoteDescription.type) {
+                  await pc.addIceCandidate(new RTCIceCandidate(candidateData)).catch(console.warn);
+                } else {
+                  iceCandidatesQueue.current.push(candidateData);
+                }
               }
-            });
+            }
           });
         }
       } catch (error) {
         if (isMounted) {
-          console.error("Error accessing media devices or setting up WebRTC.", error);
+          console.error("WebRTC Error:", error);
+          setIsError("Hardware Error: " + (error instanceof Error ? error.message : "Access denied"));
         }
       }
     };
@@ -266,7 +388,8 @@ export default function ConsultationRoom() {
 
     return () => {
       isMounted = false;
-      localStreamRef?.getTracks().forEach(track => track.stop());
+      localStreamRef.current?.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
       if (peerConnection.current) {
         peerConnection.current.close();
         peerConnection.current = null;
@@ -274,7 +397,25 @@ export default function ConsultationRoom() {
       if (unsubscribeRoom) unsubscribeRoom();
       if (unsubscribeCandidates) unsubscribeCandidates();
     };
-  }, [roomId]);
+  }, [roomId, currentUser?.uid, currentSessionId, isRoomReady, reconnectKey]);
+
+  const restartCall = async () => {
+    if (!roomId) return;
+    setIsError(null);
+    setIsConnecting(true);
+    setRemoteStream(null);
+    
+    // Rotate session ID and set initiator to local user to take charge
+    const newSessionId = Date.now().toString();
+    const roomRef = doc(db, 'chatRooms', roomId);
+    await updateDoc(roomRef, { 
+      currentSessionId: newSessionId,
+      sessionInitiator: currentUser.uid,
+      offer: null,
+      answer: null 
+    });
+    // The listener on currentSessionId will trigger the effect
+  };
 
   useEffect(() => {
     if (!roomId) return;
@@ -487,61 +628,106 @@ export default function ConsultationRoom() {
     <div className="flex flex-col lg:flex-row h-screen bg-slate-100 p-2 md:p-4 gap-4 overflow-hidden">
       
       {/* Video Section */}
-      <div className="flex-1 bg-slate-900 rounded-3xl overflow-hidden relative shadow-2xl flex flex-col">
+      <div className="flex-1 bg-slate-950 rounded-[3rem] overflow-hidden relative shadow-2xl flex flex-col border border-white/5">
         {/* Header Overlay */}
-        <div className="absolute top-0 left-0 w-full p-6 bg-gradient-to-b from-black/60 to-transparent z-10 flex justify-between items-start">
-          <div>
-            <h2 className="text-white font-bold text-lg flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span> Live Consultation
-            </h2>
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-white/70 text-sm font-mono bg-black/30 px-3 py-1 rounded-lg backdrop-blur-md border border-white/10">
-                ID: {roomId}
+        <div className="absolute top-0 left-0 w-full p-8 bg-gradient-to-b from-slate-950 to-transparent z-30 flex justify-between items-start">
+          <div className="space-y-1">
+            <h2 className="text-white font-black text-xl flex items-center gap-3">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-teal-500"></span>
               </span>
-              <button onClick={copyRoomId} className="text-white/70 hover:text-white transition-colors p-1 bg-black/30 rounded-lg backdrop-blur-md border border-white/10">
-                {copied ? <CheckCircle2 size={16} className="text-teal-400" /> : <Copy size={16} />}
+              PHARMA-GUARD <span className="text-teal-500 font-extrabold">LIVE</span>
+            </h2>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/10 backdrop-blur-md">
+                 <div className="w-1 h-1 rounded-full bg-slate-400"></div>
+                 <span className="text-[10px] text-slate-400 font-mono tracking-wider">SECURE-ID: {roomId?.substring(0, 8)}...</span>
+              </div>
+              <button 
+                onClick={copyRoomId} 
+                className="text-white/40 hover:text-white transition-all p-1.5 bg-white/5 hover:bg-white/10 rounded-lg backdrop-blur-md border border-white/10 group"
+              >
+                {copied ? <Check size={14} className="text-teal-400" /> : <Copy size={14} className="group-hover:scale-110 transition-transform" />}
               </button>
             </div>
           </div>
 
-          {/* Quality Stats Overlay */}
+          {/* Quality Stats Overlay - Clinical Style */}
           {stats && (
-            <div className="flex gap-4 items-center bg-black/40 backdrop-blur-md px-5 py-2 rounded-[2rem] border border-white/10 shadow-2xl transition-all animate-in fade-in slide-in-from-top-2">
-              <div className="flex items-center gap-2 pr-2 border-r border-white/5">
-                 <div className={`w-1.5 h-1.5 rounded-full ${stats.latency !== '--' && parseFloat(stats.latency) < 150 ? 'bg-teal-400 shadow-[0_0_8px_rgba(45,212,191,0.6)] animate-pulse' : 'bg-amber-400'}`}></div>
-                 <Activity size={12} className="text-white/40" />
+            <div className="hidden md:flex gap-6 items-center bg-slate-900/80 backdrop-blur-2xl px-6 py-3 rounded-2xl border border-white/10 shadow-[0_15px_35px_rgba(0,0,0,0.5)]">
+              <div className="flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Latency</span>
+                <span className="text-xs font-mono font-bold text-teal-400">{stats.latency}</span>
               </div>
-              <div className="flex flex-col items-center min-w-[40px]">
-                <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em]">Ping</span>
-                <span className="text-[10px] font-black text-teal-400 tabular-nums">{stats.latency}</span>
+              <div className="w-px h-8 bg-white/5"></div>
+              <div className="flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Jitter</span>
+                <span className="text-xs font-mono font-bold text-indigo-400">{stats.jitter}</span>
               </div>
-              <div className="w-px h-6 bg-white/5"></div>
-              <div className="flex flex-col items-center min-w-[40px]">
-                <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em]">Loss</span>
-                <span className={`text-[10px] font-black tabular-nums ${parseFloat(stats.packetLoss) > 1 ? 'text-rose-400' : 'text-teal-400'}`}>{stats.packetLoss}</span>
+              <div className="w-px h-8 bg-white/5"></div>
+              <div className="flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Loss</span>
+                <span className={`text-xs font-mono font-bold ${parseFloat(stats.packetLoss) > 1 ? 'text-rose-400' : 'text-teal-400'}`}>{stats.packetLoss}</span>
               </div>
-              <div className="w-px h-6 bg-white/5"></div>
-              <div className="flex flex-col items-center min-w-[50px]">
-                <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em]">Data</span>
-                <span className="text-[10px] font-black text-amber-400 tabular-nums">{stats.bitrate}</span>
-              </div>
-              <div className="w-px h-6 bg-white/5"></div>
-              <div className="flex flex-col items-center min-w-[60px]">
-                <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em]">Res</span>
-                <span className="text-[10px] font-black text-indigo-400 tabular-nums">{stats.resolution}</span>
+              <div className="w-px h-8 bg-white/5"></div>
+              <div className="flex flex-col items-center">
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Uplink</span>
+                <span className="text-xs font-mono font-bold text-amber-400">{stats.bitrate}</span>
               </div>
             </div>
           )}
         </div>
 
         {/* Remote Video (Main) */}
-        <div className="w-full h-full relative">
-          {isConnecting && !remoteStream && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-white/50 z-0">
-              <Loader2 size={48} className="animate-spin mb-4 text-teal-500" />
-              <p className="font-medium">Waiting for others to join...</p>
+        <div className="w-full h-full relative group/video bg-slate-900">
+          {isError ? (
+             <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-slate-950 z-40 p-12 text-center animate-in fade-in">
+               <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mb-6 ring-1 ring-rose-500/50">
+                 <AlertTriangle size={40} className="text-rose-500" />
+               </div>
+               <h3 className="text-2xl font-black uppercase mb-3 tracking-tighter">Diagnostic Failure</h3>
+               <p className="text-sm text-slate-400 mb-8 max-w-sm font-medium leading-relaxed">{isError}</p>
+               <button 
+                 onClick={restartCall}
+                 className="px-8 py-4 bg-indigo-600 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-indigo-700 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-indigo-500/20"
+               >
+                 <Zap size={18} /> Restore Connection
+               </button>
+             </div>
+          ) : participants.length < 2 ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white z-20 text-center p-12 overflow-hidden bg-slate-950">
+              <div className="relative mb-8">
+                <div className="w-32 h-32 rounded-full border-2 border-teal-500/10 border-t-teal-500 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Activity size={32} className="text-teal-500 animate-pulse" />
+                </div>
+              </div>
+              <h3 className="text-2xl font-black uppercase tracking-tight text-white mb-3">Encounter Pending</h3>
+              <p className="text-slate-500 text-sm max-w-xs font-medium leading-relaxed">
+                Awaiting connection from patient side. Encryption bridge is ready and secure.
+              </p>
+              <div className="mt-12 flex gap-3">
+                 {[1,2,3].map(i => <div key={i} className={`w-1.5 h-1.5 rounded-full bg-teal-500/40 animate-bounce`} style={{ animationDelay: `${i * 0.2}s` }} />)}
+              </div>
             </div>
-          )}
+          ) : isConnecting && !remoteStream ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-white z-20 text-center p-12 bg-slate-950/40 backdrop-blur-xl">
+              <div className="relative mb-8 p-1">
+                <Loader2 size={64} className="animate-spin text-indigo-500" />
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight mb-2">Synchronizing Stream</h3>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest opacity-60">Negotiating ICE Protocals • Peer Handshake</p>
+              
+              <button 
+                onClick={restartCall}
+                className="mt-12 text-[10px] font-black uppercase tracking-widest text-white px-4 py-2 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 transition-all"
+              >
+                Reset Handshake
+              </button>
+            </div>
+          ) : null}
+
           <video 
             ref={remoteVideoRef} 
             autoPlay 
@@ -550,16 +736,16 @@ export default function ConsultationRoom() {
           />
           
           {/* Reaction Overlay */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none overflow-hidden z-30">
             <AnimatePresence>
               {reactions.map((r) => (
                 <motion.div
                   key={r.id}
                   initial={{ y: '100%', opacity: 0, scale: 0.5 }}
-                  animate={{ y: '-20%', opacity: [0, 1, 1, 0], scale: [1, 1.5, 1.2, 1] }}
+                  animate={{ y: '-20%', opacity: [0, 1, 1, 0], scale: [1, 2, 1.5, 1] }}
                   exit={{ opacity: 0 }}
-                  transition={{ duration: 2.5, ease: "easeOut" }}
-                  className="absolute text-4xl"
+                  transition={{ duration: 3, ease: "easeOut" }}
+                  className="absolute text-5xl drop-shadow-2xl"
                   style={{ left: `${r.x}%` }}
                 >
                   {r.emoji}
@@ -569,25 +755,27 @@ export default function ConsultationRoom() {
           </div>
         </div>
 
-        {/* Reaction Bar */}
-        <div className="absolute bottom-32 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 bg-black/40 backdrop-blur-xl rounded-2xl border border-white/10 z-20 transition-all hover:scale-110 active:scale-95">
+        {/* Reaction Bar - Floating Glass */}
+        <div className="absolute bottom-36 left-1/2 -translate-x-1/2 flex items-center gap-1 p-1 bg-white/10 backdrop-blur-2xl rounded-2xl border border-white/10 z-40 transition-all hover:scale-110 shadow-2xl">
           {['❤️', '👍', '👏', '🔥', '⭐', '😮'].map((emoji) => (
             <button
               key={emoji}
               onClick={() => sendReaction(emoji)}
-              className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-white/10 transition-colors text-xl"
+              className="w-12 h-12 flex items-center justify-center rounded-xl hover:bg-white/20 active:scale-90 transition-all text-2xl"
             >
               {emoji}
             </button>
           ))}
         </div>
 
-        {/* Local Video (PiP) */}
-        <div className="absolute bottom-24 right-6 w-32 h-48 md:w-48 md:h-64 bg-slate-800 rounded-2xl overflow-hidden border-2 border-white/20 backdrop-blur-sm shadow-xl z-10 transition-all">
+        {/* Local Video (PiP) - High End Style */}
+        <div className="absolute bottom-28 right-8 w-40 h-56 md:w-56 md:h-72 bg-slate-800 rounded-3xl overflow-hidden border border-white/20 backdrop-blur-sm shadow-2xl z-30 transition-all group/pip">
           {isVideoOff && (
             <div className="absolute inset-0 z-10 bg-slate-900 flex flex-col items-center justify-center text-white/40">
-              <VideoOff size={32} className="mb-2" />
-              <span className="text-[10px] font-black uppercase tracking-widest">Video Off</span>
+              <div className="w-12 h-12 bg-white/5 rounded-full flex items-center justify-center mb-2">
+                <VideoOff size={24} />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em]">Lens Covered</span>
             </div>
           )}
           <video 
@@ -595,64 +783,54 @@ export default function ConsultationRoom() {
             autoPlay 
             playsInline 
             muted 
-            className={`w-full h-full object-cover transition-opacity duration-300 ${isVideoOff ? 'opacity-0' : 'opacity-100'}`} 
+            className={`w-full h-full object-cover transition-opacity duration-500 ${isVideoOff ? 'opacity-0' : 'opacity-100'}`} 
           />
-          {isMuted && (
-            <div className="absolute top-3 left-3 z-20 bg-rose-500/80 p-1.5 rounded-lg backdrop-blur-sm">
-              <MicOff size={12} className="text-white" />
+          <div className="absolute top-4 left-4 z-20 flex gap-2">
+            {isMuted && (
+              <div className="bg-rose-500 p-2 rounded-xl shadow-lg animate-in zoom-in">
+                <MicOff size={14} className="text-white" />
+              </div>
+            )}
+            <div className="bg-black/40 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
+              <span className="text-[8px] font-bold text-white uppercase tracking-widest">Self View</span>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Enhanced Controls Terminal */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-6 p-2 bg-slate-950/90 backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.6)] z-20 group/controls">
-          <div className="flex items-center gap-2 px-4 py-2 border-r border-white/10">
+        {/* Controls Console */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 py-3 px-3 bg-slate-950 border border-white/10 rounded-[2.5rem] shadow-2xl z-40 group/console">
+          <div className="flex items-center gap-3 pr-4 border-r border-white/10 pl-2">
             <button 
               onClick={toggleMute}
-              className={`group relative w-16 h-16 rounded-[1.25rem] flex flex-col items-center justify-center transition-all duration-500 transform active:scale-90 ${
+              className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 transform active:scale-90 ${
                 isMuted 
-                  ? 'bg-rose-500/30 text-rose-500 border border-rose-500/40 shadow-[0_0_30px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20' 
-                  : 'bg-white/10 text-white hover:bg-white/20 border border-white/10 shadow-lg'
+                  ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' 
+                  : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'
               }`}
             >
-              <div className="relative">
-                {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-                {isMuted && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-rose-500 shadow-sm" />}
-              </div>
-              <span className={`text-[8px] font-black uppercase tracking-[0.2em] mt-1.5 transition-colors ${isMuted ? 'text-rose-500' : 'text-white/60'}`}>
-                {isMuted ? 'Muted' : 'Audio ON'}
-              </span>
-              {isMuted && <span className="absolute inset-0 rounded-[1.25rem] bg-rose-500/5 animate-pulse"></span>}
+              {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+              <span className="text-[7px] font-black uppercase tracking-widest mt-1.5 opacity-50">Mute</span>
             </button>
 
             <button 
               onClick={toggleVideo}
-              className={`group relative w-16 h-16 rounded-[1.25rem] flex flex-col items-center justify-center transition-all duration-500 transform active:scale-90 ${
+              className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 transform active:scale-90 ${
                 isVideoOff 
-                  ? 'bg-rose-500/30 text-rose-500 border border-rose-500/40 shadow-[0_0_30px_rgba(244,63,94,0.3)] ring-2 ring-rose-500/20' 
-                  : 'bg-white/10 text-white hover:bg-white/20 border border-white/10 shadow-lg'
+                  ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' 
+                  : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'
               }`}
             >
-              <div className="relative">
-                {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
-                {isVideoOff && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full border-2 border-rose-500 shadow-sm" />}
-              </div>
-              <span className={`text-[8px] font-black uppercase tracking-[0.2em] mt-1.5 transition-colors ${isVideoOff ? 'text-rose-500' : 'text-white/60'}`}>
-                {isVideoOff ? 'Cam OFF' : 'Vision ON'}
-              </span>
-              {isVideoOff && <span className="absolute inset-0 rounded-[1.25rem] bg-rose-500/5 animate-pulse"></span>}
+              {isVideoOff ? <VideoOff size={22} /> : <Video size={22} />}
+              <span className="text-[7px] font-black uppercase tracking-widest mt-1.5 opacity-50">Video</span>
             </button>
           </div>
 
           <button 
             onClick={() => setShowEndCallConfirm(true)}
-            className="group w-32 h-16 rounded-[1.25rem] flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white shadow-2xl shadow-rose-600/30 transition-all duration-300 relative overflow-hidden mr-2 active:scale-95"
+            className="w-32 h-14 rounded-2xl flex flex-col items-center justify-center bg-rose-600 hover:bg-rose-700 text-white transition-all shadow-xl shadow-rose-600/20 active:scale-95 group/hangup pr-2"
           >
-            <div className="absolute inset-0 bg-white/10 -translate-x-full group-hover:translate-x-0 transition-transform duration-500"></div>
-            <div className="relative flex flex-col items-center">
-              <PhoneOff size={24} className="group-hover:-rotate-12 transition-transform" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] mt-1">End Call</span>
-            </div>
+            <PhoneOff size={22} className="group-hover:-translate-x-1 transition-transform" />
+            <span className="text-[9px] font-black uppercase tracking-widest mt-1">End Meeting</span>
           </button>
         </div>
       </div>
@@ -701,33 +879,36 @@ export default function ConsultationRoom() {
                   const time = msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
                   
                   return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} animate-in fade-in slide-in-from-bottom-2 mb-2`}>
-                      <div className={`flex items-center gap-2 mb-1 px-2 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{isMe ? 'You' : msg.senderName}</span>
-                        <span className="text-[9px] font-bold text-slate-400 tabular-nums">{time}</span>
+                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end ml-12' : 'items-start mr-12'} animate-in fade-in slide-in-from-bottom-2 mb-4`}>
+                      <div className={`flex items-center gap-2 mb-1.5 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{isMe ? 'You' : msg.senderName}</span>
+                        <span className="text-[10px] font-medium text-slate-400 tabular-nums">{time}</span>
                       </div>
                       
-                      <div className={`relative max-w-[85%] p-4 rounded-3xl shadow-sm transition-all hover:shadow-md ${
+                      <div className={`relative group p-4 rounded-2xl shadow-sm transition-all hover:shadow-md ${
                         isMe 
-                          ? 'bg-indigo-600 text-white rounded-tr-none' 
-                          : 'bg-slate-100 border border-slate-200 text-slate-800 rounded-tl-none'
+                          ? 'bg-indigo-600 text-white rounded-tr-none shadow-indigo-100' 
+                          : 'bg-white border border-slate-100 text-slate-800 rounded-tl-none shadow-slate-100'
                       }`}>
                         {msg.fileUrl ? (
                           <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 group/file">
-                            <div className={`p-2 rounded-xl ${isMe ? 'bg-white/20' : 'bg-white shadow-sm'}`}>
+                            <div className={`p-2.5 rounded-xl ${isMe ? 'bg-white/20' : 'bg-slate-100'}`}>
                                <FileText size={18} className={isMe ? 'text-white' : 'text-indigo-600'} />
                             </div>
                             <div className="flex flex-col">
                                <span className="text-xs font-black truncate max-w-[150px]">{msg.fileName || 'Document'}</span>
-                               <span className={`text-[10px] font-bold uppercase tracking-widest ${isMe ? 'text-white/60' : 'text-slate-400'}`}>Secure Node</span>
+                               <span className={`text-[9px] font-black uppercase tracking-widest ${isMe ? 'text-white/60' : 'text-slate-400'}`}>Cloud Encrypted</span>
                             </div>
                           </a>
                         ) : (
                           <p className="text-sm font-medium leading-relaxed">{msg.text}</p>
                         )}
+                        
                         {isMe && (
-                          <div className="flex justify-end mt-1">
-                            <CheckCheck size={14} className="text-white/70" />
+                          <div className="absolute -bottom-1 -right-6 flex items-center gap-0.5">
+                            <div className="bg-white rounded-full p-0.5 shadow-sm border border-slate-50">
+                              <CheckCheck size={10} className="text-indigo-600" />
+                            </div>
                           </div>
                         )}
                       </div>

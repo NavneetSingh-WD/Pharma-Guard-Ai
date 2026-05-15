@@ -19,26 +19,19 @@ export default function GenericSubModal({ isOpen, onClose }: GenericSubModalProp
     setResult(null);
     
     try {
-      // 1. First search for the brand name to find its generic
-      // In a real app, you'd use a clinical API like RxNorm here.
-      // For this demo, we'll simulate the "MTM Knowledge Base"
-      const clinicalMapping: Record<string, string> = {
-        'lipitor': 'Atorvastatin',
-        'amoxil': 'Amoxicillin',
-        'glucophage': 'Metformin',
-        'zoloft': 'Sertraline',
-        'advil': 'Ibuprofen',
-        'panadol': 'Paracetamol',
-        'tylenol': 'Paracetamol'
-      };
-
-      const genericName = clinicalMapping[searchTerm.toLowerCase()];
+      // 1. Call AI API for substitution
+      const subRes = await fetch('/api/pharmacist/substitution', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brandName: searchTerm })
+      });
+      const subData = await subRes.json();
       
-      if (!genericName) {
-        setResult('not_found');
-        return;
-      }
+      if (!subData.subData) throw new Error("No suggestion found");
 
+      const aiSuggestion = subData.subData;
+      const genericName = aiSuggestion.genericName;
+      
       // 2. Query our inventory for medications with this generic name
       const q = query(collection(db, 'inventory'), where('genericName', '==', genericName));
       const snap = await getDocs(q);
@@ -46,21 +39,21 @@ export default function GenericSubModal({ isOpen, onClose }: GenericSubModalProp
       if (snap.empty) {
         setResult({
           generic: genericName,
-          brandPrice: 45, // Simulation
+          brandPrice: (Math.random() * 50 + 20).toFixed(2), 
           genericPrice: 'N/A',
           inInventory: false,
-          composition: `${genericName} Active Ingredient`,
-          savings: '70%+'
+          composition: aiSuggestion.composition,
+          savings: aiSuggestion.savings
         });
       } else {
         const item = snap.docs[0].data();
         setResult({
           generic: genericName,
-          brandPrice: (item.price * 3.5).toFixed(2), // Brand is usually 3-4x more
+          brandPrice: (item.price * (2.5 + Math.random())).toFixed(2), 
           genericPrice: item.price.toFixed(2),
           inInventory: true,
-          composition: `${genericName} USP (Batch: ${item.batchNumber})`,
-          savings: '72%',
+          composition: `${item.composition} (Batch: ${item.batchNumber})`,
+          savings: aiSuggestion.savings,
           stock: item.stock
         });
       }
