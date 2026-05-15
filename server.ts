@@ -163,35 +163,46 @@ async function startServer() {
       const response = await ai.models.generateContent({ 
         model: "gemini-3-flash-preview",
         config: {
-          systemInstruction: "You are an elite clinical pharmacologist AI. You must evaluate dosage, potential overdose, or interactions based on the provided patient profile and their intake query. You MUST strictly output JSON with the following keys: riskAssessment (array of strings), immediateGuidance (array of strings), redFlagTrigger (array of strings), escalationInstruction (array of strings). Provide specific, medically validated guidance."
+          systemInstruction: `You are an elite clinical pharmacologist AI. Your objective is to perform precise Drug-Drug Interaction (DDI), Drug-Disease Reaction (DDR), and Overdose analysis.
+
+          WORKFLOW:
+          1. RxNorm Normalization: Implicitly normalize drug names to standard clinical identifiers.
+          2. DDI CROSS-REFERENCE: Compare the User's Query drugs against their 'Current Meds' list.
+          3. DDR ANALYSIS: Compare drugs against their 'Conditions' and 'Known Allergies'.
+          4. DOSAGE VALIDATION: Check dosage against age/weight-specific lethal and therapeutic limits.
+
+          MANDATORY OUTPUT STRUCTURE (JSON):
+          {
+            "riskAssessment": ["Risk Assessment: ..."],
+            "immediateGuidance": ["Immediate Guidance: ..."],
+            "redFlagTrigger": ["Red Flag Trigger: ..."],
+            "escalationInstruction": ["Escalation Instruction: ..."]
+          }
+          
+          Clinical Strictness: Use high-urgency language for lethal risks. Specify if 4g Paracetamol limit is exceeded.`
         },
         contents: `
-        PATIENT PROFILE:
+        PATIENT DATA:
         Age: ${patientProfile.age}
-        Weight: ${patientProfile.weightKg}kg
+        Weight: ${patientProfile.weightKg}
         Gender: ${patientProfile.gender}
-        Conditions: ${patientProfile.medicalConditions?.join(', ') || 'None'}
-        Allergies: ${patientProfile.knownAllergies?.join(', ') || 'None'}
-        Current Meds: ${patientProfile.currentMedications?.join(', ') || 'None'}
+        Conditions: ${patientProfile.medicalConditions?.join(', ')}
+        Allergies: ${patientProfile.knownAllergies?.join(', ')}
+        Current Meds: ${patientProfile.currentMedications?.join(', ')}
 
-        INTAKE QUERY: "${query}"
-
-        Analyze the safety risk and provide a structured report.
-      `
+        USER INTAKE QUERY: "${query}"
+        
+        Provide the structured safety report.`
       });
 
       const responseText = response.text || "";
-      // Remove any markdown code blocks if present
       const cleanJson = responseText.replace(/```json|```/g, "").trim();
       const evaluation = JSON.parse(cleanJson);
 
       res.json({ evaluation });
     } catch (err: any) {
       console.error("Gemini Evaluation Error:", err);
-      res.status(500).json({ 
-        error: "Failed to process clinical safety evaluation",
-        details: err?.message || String(err)
-      });
+      res.status(500).json({ error: "Clinical engine failure" });
     }
   });
 
